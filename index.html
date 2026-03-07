@@ -845,7 +845,7 @@ function loadState() {
       const parsed = JSON.parse(saved);
       state = {...state, ...parsed};
     }
-    // Fallback: recover API key from cookie if state lost it
+    // Cookie fallback for API key
     if (!state.apiKey) {
       const match = document.cookie.match(/fc_key=([^;]+)/);
       if (match) state.apiKey = decodeURIComponent(match[1]);
@@ -853,22 +853,71 @@ function loadState() {
   } catch(e) { console.warn('loadState error:', e); }
 }
 
+async function loadStateAsync() {
+  // Try IndexedDB as final fallback (most reliable on Android)
+  if (!state.apiKey) {
+    try {
+      const saved = await loadFromIndexedDB();
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        state = {...state, ...parsed};
+        console.log('Loaded from IndexedDB, key ends:', state.apiKey ? state.apiKey.slice(-4) : 'none');
+      }
+    } catch(e) {}
+  }
+}
+
 function saveState() {
   try {
     const toSave = {...state, chatAttachments: [], foodAttachment: null, progressPhotos: {}};
     const json = JSON.stringify(toSave);
-    try { localStorage.setItem('fitcoach_state', json); } catch(e) {}
+    try { localStorage.setItem('fitcoach_state', json); } catch(e) { console.warn('localStorage failed', e); }
     try { sessionStorage.setItem('fitcoach_state', json); } catch(e) {}
-    // Also store API key separately in a cookie (365 days) as extra fallback
+    // Cookie: 365 days, no path restriction
     if (state.apiKey) {
-      document.cookie = `fc_key=${encodeURIComponent(state.apiKey)};max-age=31536000;SameSite=Lax`;
+      try {
+        document.cookie = `fc_key=${encodeURIComponent(state.apiKey)};max-age=31536000;path=/;SameSite=Lax`;
+        document.cookie = `fc_profile=${encodeURIComponent(JSON.stringify(state.profile))};max-age=31536000;path=/;SameSite=Lax`;
+      } catch(e) {}
     }
+    // IndexedDB - most persistent on Android Chrome
+    saveToIndexedDB(json);
   } catch(e) { console.warn('saveState error:', e); }
 }
 
+function saveToIndexedDB(json) {
+  try {
+    const req = indexedDB.open('fitcoach', 1);
+    req.onupgradeneeded = e => e.target.result.createObjectStore('state');
+    req.onsuccess = e => {
+      const db = e.target.result;
+      const tx = db.transaction('state', 'readwrite');
+      tx.objectStore('state').put(json, 'main');
+    };
+  } catch(e) {}
+}
+
+async function loadFromIndexedDB() {
+  return new Promise((resolve) => {
+    try {
+      const req = indexedDB.open('fitcoach', 1);
+      req.onupgradeneeded = e => e.target.result.createObjectStore('state');
+      req.onsuccess = e => {
+        const db = e.target.result;
+        const tx = db.transaction('state', 'readonly');
+        const get = tx.objectStore('state').get('main');
+        get.onsuccess = () => resolve(get.result || null);
+        get.onerror = () => resolve(null);
+      };
+      req.onerror = () => resolve(null);
+    } catch(e) { resolve(null); }
+  });
+}
+
 // ─── INIT ────────────────────────────────────────────────────
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
   loadState();
+  await loadStateAsync(); // also check IndexedDB
 
   if (!state.apiKey) {
     document.getElementById('setupScreen').style.display = 'flex';
@@ -967,7 +1016,7 @@ function renderWeightChart() {
   const labels = log.map(e => e.date.slice(5));
   const data = log.map(e => e.weight);
 
-  const cfg = (canvas, mini) => ({
+  const makeConfig = (mini) => ({
     type: 'line',
     data: {
       labels,
@@ -985,25 +1034,34 @@ function renderWeightChart() {
     options: {
       responsive: true,
       maintainAspectRatio: false,
+      animation: false,
       plugins: { legend: { display: false } },
       scales: {
-        x: { ticks: { color: '#7070a0', font: { size: 10 } }, grid: { color: '#2a2a3a' } },
+        x: {
+          ticks: { color: '#7070a0', font: { size: 10 }, maxTicksLimit: 7, maxRotation: 0 },
+          grid: { color: '#2a2a3a' }
+        },
         y: {
-          ticks: { color: '#7070a0', font: { size: 10 } },
+          ticks: { color: '#7070a0', font: { size: 10 }, maxTicksLimit: 5 },
           grid: { color: '#2a2a3a' },
-          min: data.length ? Math.min(...data) - 1 : undefined,
+          min: data.length ? Math.min(...data) - 2 : undefined,
+          max: data.length ? Math.max(...data) + 2 : undefined,
         }
       }
     }
   });
 
-  const c1 = document.getElementById('weightChart').getContext('2d');
-  if (weightChartInst) weightChartInst.destroy();
-  weightChartInst = new Chart(c1, cfg(c1, true));
+  const canvas1 = document.getElementById('weightChart');
+  if (weightChartInst) { weightChartInst.destroy(); weightChartInst = null; }
+  canvas1.style.width = '100%';
+  canvas1.style.height = '80px';
+  weightChartInst = new Chart(canvas1.getContext('2d'), makeConfig(true));
 
-  const c2 = document.getElementById('weightChartBig').getContext('2d');
-  if (weightChartBigInst) weightChartBigInst.destroy();
-  weightChartBigInst = new Chart(c2, cfg(c2, false));
+  const canvas2 = document.getElementById('weightChartBig');
+  if (weightChartBigInst) { weightChartBigInst.destroy(); weightChartBigInst = null; }
+  canvas2.style.width = '100%';
+  canvas2.style.height = '160px';
+  weightChartBigInst = new Chart(canvas2.getContext('2d'), makeConfig(false));
 }
 
 function renderNutritionSummary() {
@@ -1610,7 +1668,7 @@ async function callGemini(messages, systemInstruction) {
   const body = {
     system_instruction: { parts: [{ text: systemInstruction }] },
     contents: messages,
-    generationConfig: { temperature: 0.7, maxOutputTokens: 1024 },
+    generationConfig: { temperature: 0.7, maxOutputTokens: 8192 },
   };
 
   const res = await fetch(
