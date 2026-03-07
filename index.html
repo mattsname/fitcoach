@@ -472,18 +472,18 @@
         <input type="number" id="profileAge" placeholder="e.g. 38">
       </div>
       <div class="form-group">
-        <label class="form-label">Height (cm)</label>
-        <input type="number" id="profileHeight" placeholder="e.g. 180">
+        <label class="form-label">Height (inches)</label>
+        <input type="number" id="profileHeight" placeholder="e.g. 71">
       </div>
     </div>
     <div class="form-row" style="margin-top:10px">
       <div class="form-group">
-        <label class="form-label">Current Weight (kg)</label>
-        <input type="number" id="profileWeight" step="0.1" placeholder="e.g. 88.5">
+        <label class="form-label">Current Weight (lbs)</label>
+        <input type="number" id="profileWeight" step="0.1" placeholder="e.g. 195">
       </div>
       <div class="form-group">
-        <label class="form-label">Goal Weight (kg)</label>
-        <input type="number" id="profileGoal" step="0.1" placeholder="e.g. 80">
+        <label class="form-label">Goal Weight (lbs)</label>
+        <input type="number" id="profileGoal" step="0.1" placeholder="e.g. 175">
       </div>
     </div>
 
@@ -549,14 +549,14 @@
       <div class="card-label">Today's Weight</div>
       <div class="weight-display">
         <div class="weight-big" id="dashWeightVal">—</div>
-        <div class="weight-unit">kg</div>
+        <div class="weight-unit">lbs</div>
         <div class="weight-delta delta-same" id="dashWeightDelta">no data</div>
       </div>
       <div class="chart-wrap">
         <canvas id="weightChart" height="80"></canvas>
       </div>
       <div class="input-row" style="margin-top:12px">
-        <input type="number" id="weightInput" step="0.1" placeholder="Log today's weight (kg)" style="flex:1">
+        <input type="number" id="weightInput" step="0.1" placeholder="Log today's weight (lbs)" style="flex:1">
         <button class="btn btn-primary" onclick="logWeight()">Log</button>
       </div>
     </div>
@@ -564,15 +564,15 @@
     <div class="stats-row" id="dashStats">
       <div class="stat-box">
         <div class="stat-val" id="statStart">—</div>
-        <div class="stat-lbl">Start kg</div>
+        <div class="stat-lbl">Start lbs</div>
       </div>
       <div class="stat-box">
         <div class="stat-val" id="statLost">—</div>
-        <div class="stat-lbl">Lost kg</div>
+        <div class="stat-lbl">Lost lbs</div>
       </div>
       <div class="stat-box">
         <div class="stat-val" id="statToGo">—</div>
-        <div class="stat-lbl">To Go kg</div>
+        <div class="stat-lbl">To Go lbs</div>
       </div>
     </div>
 
@@ -772,10 +772,10 @@
     <div class="card-label" style="margin-bottom:8px">Personal Stats</div>
     <div class="form-row" style="margin-bottom:10px">
       <div class="form-group"><label class="form-label">Age</label><input type="number" id="sAge"></div>
-      <div class="form-group"><label class="form-label">Height (cm)</label><input type="number" id="sHeight"></div>
+      <div class="form-group"><label class="form-label">Height (inches)</label><input type="number" id="sHeight"></div>
     </div>
     <div class="form-row" style="margin-bottom:10px">
-      <div class="form-group"><label class="form-label">Goal Weight (kg)</label><input type="number" id="sGoal" step="0.1"></div>
+      <div class="form-group"><label class="form-label">Goal Weight (lbs)</label><input type="number" id="sGoal" step="0.1"></div>
       <div class="form-group"><label class="form-label">Calorie Target</label><input type="number" id="sCalories"></div>
     </div>
     <div class="form-group" style="margin-bottom:10px">
@@ -909,9 +909,9 @@ function renderDashboard() {
       const diff = (latest - prev).toFixed(1);
       const el = document.getElementById('dashWeightDelta');
       if (diff < 0) {
-        el.textContent = diff + ' kg'; el.className = 'weight-delta delta-down';
+        el.textContent = diff + ' lbs'; el.className = 'weight-delta delta-down';
       } else if (diff > 0) {
-        el.textContent = '+' + diff + ' kg'; el.className = 'weight-delta delta-up';
+        el.textContent = '+' + diff + ' lbs'; el.className = 'weight-delta delta-up';
       } else {
         el.textContent = 'no change'; el.className = 'weight-delta delta-same';
       }
@@ -1021,7 +1021,7 @@ function renderTodayWorkout() {
 // ─── WEIGHT LOGGING ──────────────────────────────────────────
 function logWeight() {
   const val = parseFloat(document.getElementById('weightInput').value);
-  if (isNaN(val) || val < 30 || val > 300) { showToast('⚠️ Enter a valid weight'); return; }
+  if (isNaN(val) || val < 66 || val > 660) { showToast('⚠️ Enter a valid weight'); return; }
 
   const today = todayStr();
   const existing = state.weightLog.findIndex(e => e.date === today);
@@ -1034,7 +1034,7 @@ function logWeight() {
   saveState();
   document.getElementById('weightInput').value = '';
   renderDashboard();
-  showToast('✅ Weight logged: ' + val + ' kg');
+  showToast('✅ Weight logged: ' + val + ' lbs');
 }
 
 // ─── FOOD ────────────────────────────────────────────────────
@@ -1216,8 +1216,8 @@ function buildSystemPrompt() {
   return `You are a knowledgeable, motivating personal fitness coach and nutritionist. Be conversational, specific, and practical. Use the user's data to give personalised advice.
 
 USER PROFILE:
-- Age: ${p.age}, Height: ${p.height}cm
-- Goal weight: ${p.goalWeight}kg
+- Age: ${p.age}, Height: ${p.height} inches
+- Goal weight: ${p.goalWeight} lbs
 - Daily calorie target: ${p.calorieTarget} kcal
 - Daily protein target: ${p.proteinTarget}g
 
@@ -1225,7 +1225,7 @@ CURRENT CONTEXT:
 ${p.context || 'No prior history provided.'}
 
 RECENT WEIGHT (last 7 days):
-${log.map(e => `${e.date}: ${e.weight}kg`).join(', ') || 'No data yet'}
+${log.map(e => `${e.date}: ${e.weight}lbs`).join(', ') || 'No data yet'}
 
 TODAY'S NUTRITION SO FAR:
 - Calories consumed: ${totalCals} / ${p.calorieTarget} kcal
@@ -1335,7 +1335,7 @@ async function sendContextUpdate() {
   const totalCals = food.reduce((a,b)=>a+(b.calories||0),0);
 
   const summary = `Here's my update for today (${today}):
-- Weight: ${log ? log.weight + 'kg' : 'not logged'}
+- Weight: ${log ? log.weight + ' lbs' : 'not logged'}
 - Calories eaten: ${totalCals} (target: ${state.profile.calorieTarget})
 - Foods: ${food.map(f=>f.name).join(', ') || 'nothing yet'}
 What do you think? Any adjustments needed?`;
@@ -1420,7 +1420,7 @@ async function callGemini(messages, systemInstruction) {
   };
 
   const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${state.apiKey}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${state.apiKey}`,
     { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) }
   );
 
