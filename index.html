@@ -845,6 +845,11 @@ function loadState() {
       const parsed = JSON.parse(saved);
       state = {...state, ...parsed};
     }
+    // Fallback: recover API key from cookie if state lost it
+    if (!state.apiKey) {
+      const match = document.cookie.match(/fc_key=([^;]+)/);
+      if (match) state.apiKey = decodeURIComponent(match[1]);
+    }
   } catch(e) { console.warn('loadState error:', e); }
 }
 
@@ -854,6 +859,10 @@ function saveState() {
     const json = JSON.stringify(toSave);
     try { localStorage.setItem('fitcoach_state', json); } catch(e) {}
     try { sessionStorage.setItem('fitcoach_state', json); } catch(e) {}
+    // Also store API key separately in a cookie (365 days) as extra fallback
+    if (state.apiKey) {
+      document.cookie = `fc_key=${encodeURIComponent(state.apiKey)};max-age=31536000;SameSite=Lax`;
+    }
   } catch(e) { console.warn('saveState error:', e); }
 }
 
@@ -1071,7 +1080,6 @@ async function importFromSheets() {
   btn.disabled = true;
   result.style.display = 'none';
 
-  // Extract sheet ID from URL
   const match = url.match(/\/d\/([a-zA-Z0-9-_]+)/);
   if (!match) {
     showToast('⚠️ Could not read that link — make sure you copied the full URL');
@@ -1080,45 +1088,114 @@ async function importFromSheets() {
     return;
   }
   const sheetId = match[1];
-
-  // Fetch as CSV using the export URL (works for publicly shared sheets)
-  const csvUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv&gid=0`;
+  const csvUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv`;
 
   try {
     const res = await fetch(csvUrl);
-    if (!res.ok) throw new Error('Could not fetch sheet. Make sure sharing is set to "Anyone with the link".');
+    if (!res.ok) throw new Error('Could not access sheet. Set sharing to "Anyone with the link can view".');
     const csv = await res.text();
 
-    const lines = csv.trim().split('\n').filter(l => l.trim());
-    let imported = 0, skipped = 0;
+    // Show raw preview in console for debugging
+    const previewLines = csv.split('\n').slice(0, 5);
+    console.log('CSV preview:', previewLines);
 
-    // Check if first row is a header
-    const firstRow = lines[0].split(',');
-    const startIdx = (isNaN(parseFloat(firstRow[1])) || firstRow[1].toLowerCase().includes('weight')) ? 1 : 0;
-
-    for (let i = startIdx; i < lines.length; i++) {
-      const parts = lines[i].split(',').map(s => s.trim().replace(/"/g, ''));
-      if (parts.length < 2) continue;
-      const rawDate = parts[0];
-      const rawWeight = parseFloat(parts[1]);
-      if (isNaN(rawWeight) || rawWeight < 66 || rawWeight > 660) { skipped++; continue; }
-
-      // Parse various date formats into YYYY-MM-DD
-      let dateStr = null;
-      const isoMatch = rawDate.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
-      const dmyMatch = rawDate.match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{4})/);
-      const mdyMatch = rawDate.match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})/);
-      if (isoMatch) {
-        dateStr = `${isoMatch[1]}-${isoMatch[2].padStart(2,'0')}-${isoMatch[3].padStart(2,'0')}`;
-      } else if (dmyMatch) {
-        dateStr = `${dmyMatch[3]}-${dmyMatch[2].padStart(2,'0')}-${dmyMatch[1].padStart(2,'0')}`;
-      } else if (mdyMatch) {
-        const yr = mdyMatch[3].length === 2 ? '20' + mdyMatch[3] : mdyMatch[3];
-        dateStr = `${yr}-${mdyMatch[1].padStart(2,'0')}-${mdyMatch[2].padStart(2,'0')}`;
+    // Parse CSV properly (handles quoted commas)
+    function parseCSVLine(line) {
+      const result = [];
+      let inQuotes = false, current = '';
+      for (let i = 0; i < line.length; i++) {
+        const ch = line[i];
+        if (ch === '"') { inQuotes = !inQuotes; }
+        else if (ch === ',' && !inQuotes) { result.push(current.trim()); current = ''; }
+        else { current += ch; }
       }
-      if (!dateStr) { skipped++; continue; }
+      result.push(current.trim());
+      return result;
+    }
 
-      // Add or update
+    // Try to parse a date string into YYYY-MM-DD
+    function parseDate(raw) {
+      if (!raw) return null;
+      raw = raw.replace(/["\'\s]/g, '').trim();
+
+      // YYYY-MM-DD or YYYY/MM/DD  (e.g. 2024/07/17 or 2024-07-17)
+      let m = raw.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/);
+      if (m) return `${m[1]}-${m[2].padStart(2,'0')}-${m[3].padStart(2,'0')}`;
+
+      // DD/MM/YYYY or DD-MM-YYYY or DD.MM.YYYY
+      m = raw.match(/^(\d{1,2})[-\/\.](\d{1,2})[-\/\.](\d{4})/);
+      if (m) return `${m[3]}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}`;
+
+      // MM/DD/YY or MM-DD-YY
+      m = raw.match(/^(\d{1,2})[-\/](\d{1,2})[-\/](\d{2})$/);
+      if (m) return `20${m[3]}-${m[1].padStart(2,'0')}-${m[2].padStart(2,'0')}`;
+
+      // "Jan 8, 2026" or "8 Jan 2026" or "January 8 2026"
+      const months = {jan:1,feb:2,mar:3,apr:4,may:5,jun:6,jul:7,aug:8,sep:9,oct:10,nov:11,dec:12};
+      m = raw.match(/^([A-Za-z]+)\s+(\d{1,2})[,\s]+(\d{4})/);
+      if (m) {
+        const mo = months[m[1].toLowerCase().slice(0,3)];
+        if (mo) return `${m[3]}-${String(mo).padStart(2,'0')}-${m[2].padStart(2,'0')}`;
+      }
+      m = raw.match(/^(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})/);
+      if (m) {
+        const mo = months[m[2].toLowerCase().slice(0,3)];
+        if (mo) return `${m[3]}-${String(mo).padStart(2,'0')}-${m[1].padStart(2,'0')}`;
+      }
+
+      // Google Sheets serial number (e.g. 45678 = days since Dec 30 1899)
+      if (/^\d{5}$/.test(raw)) {
+        const d = new Date((parseInt(raw) - 25569) * 86400 * 1000);
+        if (!isNaN(d.getTime())) return d.toISOString().split('T')[0];
+      }
+
+      // Try JS Date as last resort
+      const d = new Date(raw);
+      if (!isNaN(d.getTime()) && d.getFullYear() > 2000) {
+        return d.toISOString().split('T')[0];
+      }
+      return null;
+    }
+
+    const lines = csv.split('\n').filter(l => l.trim());
+    let imported = 0, skipped = 0, errors = [];
+
+    // Auto-detect which columns have date and weight
+    let dateCol = 0, weightCol = 1, startRow = 0;
+
+    // Check if first row is header
+    const firstParts = parseCSVLine(lines[0]);
+    const firstIsHeader = firstParts.some(p => /date|day|weight|lbs|kg/i.test(p));
+    if (firstIsHeader) {
+      startRow = 1;
+      // Find which column is date and which is weight
+      firstParts.forEach((p, i) => {
+        if (/date|day/i.test(p)) dateCol = i;
+        if (/weight|lbs|kg/i.test(p)) weightCol = i;
+      });
+    }
+
+    for (let i = startRow; i < lines.length; i++) {
+      const parts = parseCSVLine(lines[i]);
+      if (parts.length < 2) { skipped++; continue; }
+
+      const rawDate = parts[dateCol] || '';
+      const rawWeightStr = (parts[weightCol] || '').replace(/[^0-9.\-]/g, '');
+      const rawWeight = parseFloat(rawWeightStr);
+
+      if (isNaN(rawWeight) || rawWeight < 50 || rawWeight > 800) {
+        skipped++;
+        if (i < startRow + 3) errors.push(`Row ${i+1}: weight="${parts[weightCol]}" not valid`);
+        continue;
+      }
+
+      const dateStr = parseDate(rawDate);
+      if (!dateStr) {
+        skipped++;
+        if (i < startRow + 3) errors.push(`Row ${i+1}: date="${rawDate}" not recognised`);
+        continue;
+      }
+
       const existing = state.weightLog.findIndex(e => e.date === dateStr);
       if (existing >= 0) {
         state.weightLog[existing].weight = rawWeight;
@@ -1133,10 +1210,16 @@ async function importFromSheets() {
     renderDashboard();
 
     result.style.display = 'block';
-    result.style.color = 'var(--accent2)';
-    result.innerHTML = `✅ <strong>${imported} entries imported</strong> (${skipped} skipped). Your weight chart now shows your full history!`;
+    if (imported > 0) {
+      result.style.color = 'var(--accent2)';
+      result.innerHTML = `✅ <strong>${imported} entries imported!</strong> Your full weight history is now in the chart.`;
+      showToast(`✅ Imported ${imported} weight entries!`);
+    } else {
+      result.style.color = 'var(--warn)';
+      const errMsg = errors.length ? `<br><small style="opacity:0.7;font-family:monospace">First rows seen: ${errors.join(' | ')}</small>` : '<br><small style="opacity:0.7">No rows were read — check the sheet is public.</small>';
+      result.innerHTML = `⚠️ 0 imported, ${skipped} skipped. ${errMsg}`;
+    }
     document.getElementById('sheetsUrl').value = '';
-    showToast(`✅ Imported ${imported} weight entries!`);
   } catch(e) {
     result.style.display = 'block';
     result.style.color = 'var(--danger)';
