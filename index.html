@@ -853,8 +853,9 @@ function loadState() {
     }
     // URL hash fallback — most reliable, survives all storage restrictions
     if (!state.apiKey) {
-      const hashMatch = window.location.hash.match(/[#&]k=([^&]+)/);
-      if (hashMatch) state.apiKey = decodeURIComponent(hashMatch[1]);
+      const hash = window.location.hash; // e.g. "#k=AIzaSy..."
+      const hashMatch = hash.match(/k=([^&]+)/);
+      if (hashMatch) { state.apiKey = decodeURIComponent(hashMatch[1]); console.log('Key loaded from URL hash'); }
     }
   } catch(e) { console.warn('loadState error:', e); }
 }
@@ -871,8 +872,9 @@ async function loadStateAsync() {
   }
   // Final fallback: check URL hash again after async load
   if (!state.apiKey) {
-    const hashMatch = window.location.hash.match(/[#&]k=([^&]+)/);
-    if (hashMatch) state.apiKey = decodeURIComponent(hashMatch[1]);
+    const hash = window.location.hash;
+    const hashMatch = hash.match(/k=([^&]+)/);
+    if (hashMatch) { state.apiKey = decodeURIComponent(hashMatch[1]); console.log('Key loaded from URL hash (async)'); }
   }
 }
 
