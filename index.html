@@ -576,6 +576,23 @@
       </div>
     </div>
 
+    <div class="card" id="sheetsImportCard">
+      <div class="card-label">📊 Import from Google Sheets</div>
+      <div style="font-size:13px;color:var(--muted);margin-bottom:10px;line-height:1.5">
+        Paste your Google Sheet's <strong style="color:var(--text)">sharing link</strong> to import your weight history. 
+        Make sure it's set to <em>"Anyone with the link can view"</em>.
+      </div>
+      <input type="text" id="sheetsUrl" placeholder="Paste Google Sheets link here..." style="margin-bottom:8px">
+      <div style="font-size:11px;color:var(--muted);margin-bottom:8px">
+        Column A = Date (e.g. 2025-01-15 or 15/01/2025) · Column B = Weight (lbs)
+      </div>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-primary" style="flex:1" onclick="importFromSheets()" id="sheetsImportBtn">Import Weight History</button>
+        <button class="btn btn-ghost" onclick="document.getElementById('sheetsImportCard').style.display='none'">Hide</button>
+      </div>
+      <div id="sheetsImportResult" style="margin-top:8px;font-size:13px;display:none"></div>
+    </div>
+
     <div class="card">
       <div class="card-label">Today's Nutrition</div>
       <div class="calorie-summary" id="dashCalories">
@@ -821,20 +838,23 @@ function todayStr() {
 
 function loadState() {
   try {
-    const saved = localStorage.getItem('fitcoach_state');
+    let saved = null;
+    try { saved = localStorage.getItem('fitcoach_state'); } catch(e) {}
+    if (!saved) { try { saved = sessionStorage.getItem('fitcoach_state'); } catch(e) {} }
     if (saved) {
       const parsed = JSON.parse(saved);
       state = {...state, ...parsed};
     }
-  } catch(e) {}
+  } catch(e) { console.warn('loadState error:', e); }
 }
 
 function saveState() {
   try {
-    // Don't save chat attachments (too large)
-    const toSave = {...state, chatAttachments: [], foodAttachment: null};
-    localStorage.setItem('fitcoach_state', JSON.stringify(toSave));
-  } catch(e) {}
+    const toSave = {...state, chatAttachments: [], foodAttachment: null, progressPhotos: {}};
+    const json = JSON.stringify(toSave);
+    try { localStorage.setItem('fitcoach_state', json); } catch(e) {}
+    try { sessionStorage.setItem('fitcoach_state', json); } catch(e) {}
+  } catch(e) { console.warn('saveState error:', e); }
 }
 
 // ─── INIT ────────────────────────────────────────────────────
@@ -1035,6 +1055,97 @@ function logWeight() {
   document.getElementById('weightInput').value = '';
   renderDashboard();
   showToast('✅ Weight logged: ' + val + ' lbs');
+}
+
+// ─── GOOGLE SHEETS IMPORT ───────────────────────────────────
+async function importFromSheets() {
+  const url = document.getElementById('sheetsUrl').value.trim();
+  if (!url.includes('docs.google.com/spreadsheets')) {
+    showToast('⚠️ Please paste a Google Sheets link');
+    return;
+  }
+
+  const btn = document.getElementById('sheetsImportBtn');
+  const result = document.getElementById('sheetsImportResult');
+  btn.innerHTML = '<span class="spinner"></span> Importing...';
+  btn.disabled = true;
+  result.style.display = 'none';
+
+  // Extract sheet ID from URL
+  const match = url.match(/\/d\/([a-zA-Z0-9-_]+)/);
+  if (!match) {
+    showToast('⚠️ Could not read that link — make sure you copied the full URL');
+    btn.innerHTML = 'Import Weight History';
+    btn.disabled = false;
+    return;
+  }
+  const sheetId = match[1];
+
+  // Fetch as CSV using the export URL (works for publicly shared sheets)
+  const csvUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv&gid=0`;
+
+  try {
+    const res = await fetch(csvUrl);
+    if (!res.ok) throw new Error('Could not fetch sheet. Make sure sharing is set to "Anyone with the link".');
+    const csv = await res.text();
+
+    const lines = csv.trim().split('\n').filter(l => l.trim());
+    let imported = 0, skipped = 0;
+
+    // Check if first row is a header
+    const firstRow = lines[0].split(',');
+    const startIdx = (isNaN(parseFloat(firstRow[1])) || firstRow[1].toLowerCase().includes('weight')) ? 1 : 0;
+
+    for (let i = startIdx; i < lines.length; i++) {
+      const parts = lines[i].split(',').map(s => s.trim().replace(/"/g, ''));
+      if (parts.length < 2) continue;
+      const rawDate = parts[0];
+      const rawWeight = parseFloat(parts[1]);
+      if (isNaN(rawWeight) || rawWeight < 66 || rawWeight > 660) { skipped++; continue; }
+
+      // Parse various date formats into YYYY-MM-DD
+      let dateStr = null;
+      const isoMatch = rawDate.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+      const dmyMatch = rawDate.match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{4})/);
+      const mdyMatch = rawDate.match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})/);
+      if (isoMatch) {
+        dateStr = `${isoMatch[1]}-${isoMatch[2].padStart(2,'0')}-${isoMatch[3].padStart(2,'0')}`;
+      } else if (dmyMatch) {
+        dateStr = `${dmyMatch[3]}-${dmyMatch[2].padStart(2,'0')}-${dmyMatch[1].padStart(2,'0')}`;
+      } else if (mdyMatch) {
+        const yr = mdyMatch[3].length === 2 ? '20' + mdyMatch[3] : mdyMatch[3];
+        dateStr = `${yr}-${mdyMatch[1].padStart(2,'0')}-${mdyMatch[2].padStart(2,'0')}`;
+      }
+      if (!dateStr) { skipped++; continue; }
+
+      // Add or update
+      const existing = state.weightLog.findIndex(e => e.date === dateStr);
+      if (existing >= 0) {
+        state.weightLog[existing].weight = rawWeight;
+      } else {
+        state.weightLog.push({ date: dateStr, weight: rawWeight });
+        imported++;
+      }
+    }
+
+    state.weightLog.sort((a,b) => a.date.localeCompare(b.date));
+    saveState();
+    renderDashboard();
+
+    result.style.display = 'block';
+    result.style.color = 'var(--accent2)';
+    result.innerHTML = `✅ <strong>${imported} entries imported</strong> (${skipped} skipped). Your weight chart now shows your full history!`;
+    document.getElementById('sheetsUrl').value = '';
+    showToast(`✅ Imported ${imported} weight entries!`);
+  } catch(e) {
+    result.style.display = 'block';
+    result.style.color = 'var(--danger)';
+    result.innerHTML = `❌ ${e.message}`;
+    console.error(e);
+  }
+
+  btn.innerHTML = 'Import Weight History';
+  btn.disabled = false;
 }
 
 // ─── FOOD ────────────────────────────────────────────────────
@@ -1470,7 +1581,8 @@ function saveSettings() {
 
 function clearAllData() {
   if (confirm('This will delete ALL your data including weight log and food history. Are you sure?')) {
-    localStorage.removeItem('fitcoach_state');
+    try { localStorage.removeItem('fitcoach_state'); } catch(e) {}
+    try { sessionStorage.removeItem('fitcoach_state'); } catch(e) {}
     location.reload();
   }
 }
