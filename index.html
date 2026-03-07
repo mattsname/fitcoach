@@ -1510,7 +1510,7 @@ async function sendMessage() {
     addMessageToUI('ai', reply);
   } catch(e) {
     hideTyping();
-    addMessageToUI('ai', '❌ Something went wrong. Check your internet connection and API key in Settings.');
+    addMessageToUI('ai', `❌ Error: ${e.message || e}. (Key loaded: ${state.apiKey ? 'YES, ends in ...'+state.apiKey.slice(-4) : 'NO KEY FOUND'})`);
     console.error(e);
   }
 
@@ -1619,12 +1619,21 @@ async function callGemini(messages, systemInstruction) {
   );
 
   if (!res.ok) {
-    const err = await res.json();
-    throw new Error(err.error?.message || 'API error');
+    let errMsg = `HTTP ${res.status}`;
+    try {
+      const err = await res.json();
+      errMsg = err.error?.message || err.error?.status || JSON.stringify(err);
+    } catch(e) {}
+    throw new Error(errMsg);
   }
 
   const data = await res.json();
-  return data.candidates?.[0]?.content?.parts?.[0]?.text || 'No response received.';
+  const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!text) {
+    const reason = data.candidates?.[0]?.finishReason || JSON.stringify(data).slice(0,200);
+    throw new Error('No text in response. Reason: ' + reason);
+  }
+  return text;
 }
 
 // ─── SETTINGS ────────────────────────────────────────────────
