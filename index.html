@@ -817,13 +817,28 @@
 let state = {
   apiKey: '',
   profile: {},
-  weightLog: [],    // [{date, weight}]
-  foodLog: {},      // {dateStr: [{name, calories, protein, carbs, fat, emoji}]}
-  chatHistory: [],  // [{role, parts}] for Gemini API
+  weightLog: [],
+  foodLog: {},
+  chatHistory: [],
   progressPhotos: {},
-  chatAttachments: [], // base64 images for current message
+  chatAttachments: [],
   foodAttachment: null,
 };
+
+// Read API key from URL hash IMMEDIATELY before anything else runs
+// This must happen before DOMContentLoaded so the key is available right away
+(function() {
+  try {
+    const hash = window.location.hash;
+    if (hash && hash.includes('k=')) {
+      const m = hash.match(/k=([^&]+)/);
+      if (m && m[1]) {
+        state.apiKey = decodeURIComponent(m[1]);
+        console.log('API key pre-loaded from URL hash, ends:', state.apiKey.slice(-4));
+      }
+    }
+  } catch(e) {}
+})();
 
 const DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 const SCHEDULE = {
