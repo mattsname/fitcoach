@@ -851,20 +851,28 @@ function loadState() {
       const match = document.cookie.match(/fc_key=([^;]+)/);
       if (match) state.apiKey = decodeURIComponent(match[1]);
     }
+    // URL hash fallback — most reliable, survives all storage restrictions
+    if (!state.apiKey) {
+      const hashMatch = window.location.hash.match(/[#&]k=([^&]+)/);
+      if (hashMatch) state.apiKey = decodeURIComponent(hashMatch[1]);
+    }
   } catch(e) { console.warn('loadState error:', e); }
 }
 
 async function loadStateAsync() {
-  // Try IndexedDB as final fallback (most reliable on Android)
   if (!state.apiKey) {
     try {
       const saved = await loadFromIndexedDB();
       if (saved) {
         const parsed = JSON.parse(saved);
         state = {...state, ...parsed};
-        console.log('Loaded from IndexedDB, key ends:', state.apiKey ? state.apiKey.slice(-4) : 'none');
       }
     } catch(e) {}
+  }
+  // Final fallback: check URL hash again after async load
+  if (!state.apiKey) {
+    const hashMatch = window.location.hash.match(/[#&]k=([^&]+)/);
+    if (hashMatch) state.apiKey = decodeURIComponent(hashMatch[1]);
   }
 }
 
@@ -879,6 +887,13 @@ function saveState() {
       try {
         document.cookie = `fc_key=${encodeURIComponent(state.apiKey)};max-age=31536000;path=/;SameSite=Lax`;
         document.cookie = `fc_profile=${encodeURIComponent(JSON.stringify(state.profile))};max-age=31536000;path=/;SameSite=Lax`;
+      } catch(e) {}
+      // Store key in URL hash so it survives storage wipes
+      try {
+        const newHash = '#k=' + encodeURIComponent(state.apiKey);
+        if (window.location.hash !== newHash) {
+          history.replaceState(null, '', newHash);
+        }
       } catch(e) {}
     }
     // IndexedDB - most persistent on Android Chrome
