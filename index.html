@@ -764,7 +764,7 @@ input[type="file"] { display: none; }
           <div class="weight-delta delta-same" id="logWeightDelta">—</div>
         </div>
         <div class="chart-wrap">
-          <canvas id="weightChart" style="width:100%;height:120px"></canvas>
+          <div style="position:relative;height:120px;width:100%"><canvas id="weightChart"></canvas></div>
         </div>
         <div style="display:flex;gap:8px;margin-top:12px">
           <input type="number" id="weightInput" step="0.1" placeholder="Log today's weight (lbs)" style="flex:1">
@@ -846,7 +846,9 @@ input[type="file"] { display: none; }
             <button class="btn btn-ghost btn-sm" onclick="shiftChart(1)" style="padding:4px 10px;font-size:14px">▶</button>
           </div>
         </div>
-        <canvas id="weightChartBig" style="width:100%;height:180px"></canvas>
+        <div style="position:relative;height:180px;width:100%">
+          <canvas id="weightChartBig"></canvas>
+        </div>
       </div>
 
       <div class="card">
@@ -956,6 +958,8 @@ let state = {
   progressPhotos: {},
   currentWorkout: null,
   workoutHistory: {},
+  // User-overridable schedule: { 1: 'push', 3: 'pull', 5: 'push', 2: 'swim' } etc.
+  customSchedule: {},
 };
 
 let weightChartInst = null, weightChartBigInst = null;
@@ -969,7 +973,7 @@ function getSchedule() {
   const startOfYear = new Date(now.getFullYear(), 0, 1);
   const weekNum = Math.floor((now - startOfYear) / (7 * 24 * 3600 * 1000));
   const isWeekA = weekNum % 2 === 0;
-  return {
+  const base = {
     1: { type: isWeekA ? 'push' : 'pull', label: isWeekA ? 'PUSH' : 'PULL' },
     2: { type: 'swim', label: 'SWIM' },
     3: { type: isWeekA ? 'pull' : 'push', label: isWeekA ? 'PULL' : 'PUSH' },
@@ -978,6 +982,24 @@ function getSchedule() {
     6: { type: 'rest', label: 'REST' },
     0: { type: 'rest', label: 'REST' },
   };
+  // Apply any user overrides from coach conversations
+  const custom = state.customSchedule || {};
+  for (const [day, type] of Object.entries(custom)) {
+    base[parseInt(day)] = { type, label: type.toUpperCase() };
+  }
+  return base;
+}
+
+// Called by applyCoachWorkoutChanges when schedule changes are detected
+function applyScheduleOverride(dayIndex, type) {
+  if (!state.customSchedule) state.customSchedule = {};
+  state.customSchedule[dayIndex] = type;
+  // Persist to Firebase
+  if (state.uid) fbSet(`users/${state.uid}/profile/main`, { ...state.profile, customSchedule: state.customSchedule });
+  saveLocal();
+  renderWeekStrip();
+  renderTodayWorkout();
+  showToast(`✅ Schedule updated: ${DAYS[dayIndex]} is now ${type.toUpperCase()}`);
 }
 
 const DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
@@ -1001,7 +1023,10 @@ async function loadUserData() {
   const base = `users/${state.uid}`;
 
   const profile = await fbGet(`${base}/profile/main`);
-  if (profile) state.profile = profile;
+  if (profile) {
+    state.profile = profile;
+    if (profile.customSchedule) state.customSchedule = profile.customSchedule;
+  }
 
   const weightSnap = await getDocs(query(collection(db, `${base}/weights`), orderBy('date')));
   state.weightLog = weightSnap.docs.map(d => d.data());
@@ -1357,15 +1382,14 @@ function renderCharts() {
 }
 
 function renderMiniChart() {
-  const log = state.weightLog.slice(-30);
+  const log = state.weightLog.filter(e => e.weight >= 66 && e.weight <= 660).slice(-30);
   const labels = log.map(e => e.date.slice(5));
   const data = log.map(e => e.weight);
-  const minY = data.length ? Math.min(...data) - 2 : 150;
-  const maxY = data.length ? Math.max(...data) + 2 : 200;
+  const minY = data.length ? Math.min(...data) - 3 : 150;
+  const maxY = data.length ? Math.max(...data) + 3 : 200;
   const c1 = document.getElementById('weightChart');
   if (weightChartInst) { weightChartInst.destroy(); weightChartInst = null; }
-  c1.style.height = '120px';
-  weightChartInst = new Chart(c1.getContext('2d'), {
+  weightChartInst = new Chart(c1, {
     type: 'line',
     data: { labels, datasets: [{ data, borderColor: '#ff5c1a', backgroundColor: 'rgba(255,92,26,0.1)', borderWidth: 2.5, pointRadius: 2, pointBackgroundColor: '#ff5c1a', fill: true, tension: 0.4 }] },
     options: { responsive: true, maintainAspectRatio: false, animation: false, plugins: { legend: { display: false } }, scales: { x: { ticks: { color: '#666', font: { size: 10 }, maxTicksLimit: 7, maxRotation: 0 }, grid: { color: '#222' } }, y: { ticks: { color: '#666', font: { size: 10 }, maxTicksLimit: 5 }, grid: { color: '#222' }, min: minY, max: maxY } } }
@@ -1373,21 +1397,21 @@ function renderMiniChart() {
 }
 
 function renderBigChart() {
-  const allLog = state.weightLog;
+  // Filter out bad/zero entries (only keep plausible human weights 66-660 lbs)
+  const allLog = state.weightLog.filter(e => e.weight >= 66 && e.weight <= 660);
   if (!allLog.length) return;
 
   // Work out 2-month window
   const WINDOW_DAYS = 61;
   const totalDays = allLog.length;
-  // End index (exclusive): offset 0 = most recent, offset 1 = 2 months earlier, etc.
   const endIdx = Math.max(WINDOW_DAYS, totalDays - chartOffset * WINDOW_DAYS);
   const startIdx = Math.max(0, endIdx - WINDOW_DAYS);
   const slice = allLog.slice(startIdx, endIdx);
 
   const labels = slice.map(e => e.date.slice(5));
   const data = slice.map(e => e.weight);
-  const minY = data.length ? Math.min(...data) - 2 : 150;
-  const maxY = data.length ? Math.max(...data) + 2 : 200;
+  const minY = data.length ? Math.min(...data) - 3 : 150;
+  const maxY = data.length ? Math.max(...data) + 3 : 200;
 
   // Update range label
   if (slice.length) {
@@ -1399,8 +1423,7 @@ function renderBigChart() {
 
   const c2 = document.getElementById('weightChartBig');
   if (weightChartBigInst) { weightChartBigInst.destroy(); weightChartBigInst = null; }
-  c2.style.height = '180px';
-  weightChartBigInst = new Chart(c2.getContext('2d'), {
+  weightChartBigInst = new Chart(c2, {
     type: 'line',
     data: { labels, datasets: [{ data, borderColor: '#ff5c1a', backgroundColor: 'rgba(255,92,26,0.1)', borderWidth: 2.5, pointRadius: 4, pointBackgroundColor: '#ff5c1a', fill: true, tension: 0.4 }] },
     options: { responsive: true, maintainAspectRatio: false, animation: false, plugins: { legend: { display: false } }, scales: { x: { ticks: { color: '#666', font: { size: 10 }, maxTicksLimit: 8, maxRotation: 0 }, grid: { color: '#222' } }, y: { ticks: { color: '#666', font: { size: 10 }, maxTicksLimit: 5 }, grid: { color: '#222' }, min: minY, max: maxY } } }
@@ -1713,29 +1736,53 @@ window.sendChat = async () => {
 
 // When coach chat changes the workout, re-generate the exercise list incorporating those changes
 async function applyCoachWorkoutChanges(userMsg, coachReply) {
+  const today = todayStr();
+
+  // STEP 1: Detect and apply schedule changes (day type overrides)
+  const schedulePrompt = `The user said: "${userMsg}"
+The coach replied: "${coachReply.slice(0,300)}"
+
+Did the user request a change to which day is Push, Pull, Swim, or Rest? (e.g. "make Monday push day", "switch Wednesday to pull", "I want Friday to be swim")
+If YES, respond with ONLY a JSON array, no markdown, no explanation:
+[{"day":1,"type":"push"}]
+(day: 0=Sun, 1=Mon, 2=Tue, 3=Wed, 4=Thu, 5=Fri, 6=Sat. type must be one of: push, pull, swim, rest)
+If NO schedule changes, respond with exactly the text: NO_CHANGE`;
+
+  try {
+    const schedRes = await callGemini([{role:'user',parts:[{text:'Detect schedule changes only'}]}], schedulePrompt);
+    const schedClean = schedRes.replace(/```json|```/g,'').trim();
+    if (schedClean !== 'NO_CHANGE' && schedClean.includes('[')) {
+      const jsonMatch = schedClean.match(/\[[\s\S]*?\]/);
+      if (jsonMatch) {
+        const changes = JSON.parse(jsonMatch[0]);
+        if (Array.isArray(changes)) {
+          changes.forEach(c => {
+            if (typeof c.day === 'number' && c.type) applyScheduleOverride(c.day, c.type);
+          });
+        }
+      }
+    }
+  } catch(e) { console.warn('Schedule detection failed:', e); }
+
+  // STEP 2: Re-generate current day's workout with changes applied
   const sched = getSchedule();
   const dow = selectedDay !== null ? selectedDay : new Date().getDay();
   const s = sched[dow];
-  if (s.type === 'rest' || s.type === 'swim') return; // only applies to gym days
+  if (s.type === 'rest' || s.type === 'swim') return;
 
-  const today = todayStr();
-  const food = state.foodLog[today] || [];
-  const totalCals = food.reduce((a,b) => a+(b.calories||0), 0);
-
-  const prompt = buildSystemPrompt() + `
+  const workoutPrompt = buildSystemPrompt() + `
 
 The user just asked: "${userMsg}"
 You responded: "${coachReply.slice(0,400)}"
 
-Now generate an UPDATED ${s.label} workout that reflects any changes discussed above.
-Return ONLY this JSON, no markdown, no explanation:
+Generate an UPDATED ${s.label} workout incorporating the changes discussed above.
+Return ONLY valid JSON, no markdown, no explanation:
 {"exercises":[{"name":"string","sets":number,"repsRange":"e.g. 8-12","suggestedWeight":number,"unit":"lbs","muscleGroup":"string","notes":"brief tip"}]}
 Include 5-7 exercises. Apply the changes the user requested.`;
 
   try {
-    const res = await callGemini([{role:'user',parts:[{text:'Update workout based on our conversation'}]}], prompt);
-    const clean = res.replace(/\`\`\`json|\`\`\`/g,'').trim();
-    // Find JSON object
+    const res = await callGemini([{role:'user',parts:[{text:'Update workout'}]}], workoutPrompt);
+    const clean = res.replace(/```json|```/g,'').trim();
     const jsonMatch = clean.match(/\{[\s\S]*\}/);
     if (!jsonMatch) return;
     const data = JSON.parse(jsonMatch[0]);
@@ -1743,11 +1790,9 @@ Include 5-7 exercises. Apply the changes the user requested.`;
       state.currentWorkout = data.exercises;
       renderExerciseList(data.exercises);
       if (state.uid) await fbSet(`users/${state.uid}/workouts/${today}`, { exercises: data.exercises, type: s.label, date: today });
-      showToast('✅ Workout updated based on your conversation');
+      showToast('✅ Workout updated');
     }
-  } catch(e) {
-    console.warn('Could not auto-update workout:', e);
-  }
+  } catch(e) { console.warn('Workout update failed:', e); }
 }
 
 window.quickAsk = (text) => {
@@ -1956,9 +2001,8 @@ window.switchTab = (name) => {
   document.getElementById(`nav-${name}`).classList.add('active');
   document.getElementById('scrollArea').scrollTop = 0;
   if(name==='progress') {
-    // Destroy before showing panel to avoid rendering on hidden canvas
     if(weightChartBigInst) { weightChartBigInst.destroy(); weightChartBigInst = null; }
-    requestAnimationFrame(() => renderBigChart());
+    setTimeout(() => renderBigChart(), 50);
   }
 };
 
