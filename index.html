@@ -1152,8 +1152,7 @@ window.selectDay = (day) => {
   const s = sched[day];
   document.getElementById('todayType').textContent = s.label;
   document.getElementById('todayType').className = `workout-type ${s.type}`;
-  document.getElementById('todayMeta').innerHTML = s.type === 'rest' ? 'Active recovery day' : s.type === 'swim' ? '<span>Cardio + Full body</span> · 30–45 min';
-  '': '';
+  document.getElementById('todayMeta').innerHTML = s.type === 'rest' ? 'Active recovery day' : s.type === 'swim' ? '<span>Cardio + Full body</span> · 30–45 min' : `<span>${s.label} Day</span> · Gym`;
 };
 
 function renderTodayWorkout() {
