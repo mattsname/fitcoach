@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>FitCoach</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%230e0e0e'/%3E%3Ctext x='2' y='24' font-family='Arial Black,sans-serif' font-size='22' font-weight='900' fill='%23ff5c1a'%3EF%3C/text%3E%3Ctext x='14' y='24' font-family='Arial Black,sans-serif' font-size='22' font-weight='900' fill='%23f5f5f5'%3EC%3C/text%3E%3C/svg%3E">
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800;900&family=Barlow:wght@300;400;500;600&family=Barlow+Semi+Condensed:wght@500;600&display=swap" rel="stylesheet">
 <style>
 :root {
@@ -1686,6 +1687,8 @@ window.sendBriefing = async () => {
   try {
     const res = await callGemini([{role:'user',parts:[{text}]}], prompt);
     content.innerHTML = formatBriefing(res);
+    // Also detect and apply any schedule changes from the briefing input
+    detectAndApplyScheduleChanges(text);
   } catch(e) {
     showToast('❌ Could not reach Gemini');
   }
@@ -1775,37 +1778,45 @@ window.sendChat = async () => {
   btn.disabled = false;
 };
 
-// When coach chat changes the workout, re-generate the exercise list incorporating those changes
+// Direct regex schedule parser — instant, no extra API call
+function detectAndApplyScheduleChanges(userMsg) {
+  const DAY_MAP = {
+    'sun':0,'sunday':0,'mon':1,'monday':1,'tue':2,'tuesday':2,
+    'wed':3,'wednesday':3,'thu':4,'thursday':4,'fri':5,'friday':5,'sat':6,'saturday':6
+  };
+  const TYPE_MAP = {
+    'push':'push','pushing':'push','pull':'pull','pulling':'pull',
+    'swim':'swim','swimming':'swim','cardio':'swim','rest':'rest','off':'rest','recovery':'rest'
+  };
+  const msg = userMsg.toLowerCase();
+  let changed = false;
+
+  // Try all day names against all type words in the message
+  for (const [dayStr, dayIdx] of Object.entries(DAY_MAP)) {
+    if (!msg.includes(dayStr)) continue;
+    for (const [typeStr, type] of Object.entries(TYPE_MAP)) {
+      if (!msg.includes(typeStr)) continue;
+      // Make sure both appear close together (within 30 chars)
+      const dayPos = msg.indexOf(dayStr);
+      const typePos = msg.indexOf(typeStr);
+      if (Math.abs(dayPos - typePos) < 35) {
+        applyScheduleOverride(dayIdx, type);
+        changed = true;
+        break;
+      }
+    }
+  }
+  return changed;
+}
+
+// When coach chat changes the workout, apply schedule + re-generate exercises
 async function applyCoachWorkoutChanges(userMsg, coachReply) {
   const today = todayStr();
 
-  // STEP 1: Detect and apply schedule changes (day type overrides)
-  const schedulePrompt = `The user said: "${userMsg}"
-The coach replied: "${coachReply.slice(0,300)}"
+  // STEP 1: Directly parse user message for schedule changes
+  detectAndApplyScheduleChanges(userMsg);
 
-Did the user request a change to which day is Push, Pull, Swim, or Rest? (e.g. "make Monday push day", "switch Wednesday to pull", "I want Friday to be swim")
-If YES, respond with ONLY a JSON array, no markdown, no explanation:
-[{"day":1,"type":"push"}]
-(day: 0=Sun, 1=Mon, 2=Tue, 3=Wed, 4=Thu, 5=Fri, 6=Sat. type must be one of: push, pull, swim, rest)
-If NO schedule changes, respond with exactly the text: NO_CHANGE`;
-
-  try {
-    const schedRes = await callGemini([{role:'user',parts:[{text:'Detect schedule changes only'}]}], schedulePrompt);
-    const schedClean = schedRes.replace(/```json|```/g,'').trim();
-    if (schedClean !== 'NO_CHANGE' && schedClean.includes('[')) {
-      const jsonMatch = schedClean.match(/\[[\s\S]*?\]/);
-      if (jsonMatch) {
-        const changes = JSON.parse(jsonMatch[0]);
-        if (Array.isArray(changes)) {
-          changes.forEach(c => {
-            if (typeof c.day === 'number' && c.type) applyScheduleOverride(c.day, c.type);
-          });
-        }
-      }
-    }
-  } catch(e) { console.warn('Schedule detection failed:', e); }
-
-  // STEP 2: Re-generate current day's workout with changes applied
+  // STEP 2: Re-generate current day workout with updated schedule
   const sched = getSchedule();
   const dow = selectedDay !== null ? selectedDay : new Date().getDay();
   const s = sched[dow];
