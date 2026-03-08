@@ -441,7 +441,7 @@
 <body>
 
 <!-- API KEY SETUP SCREEN -->
-<div class="setup-screen" id="setupScreen">
+<div class="setup-screen" id="setupScreen" style="display:none">
   <div class="setup-box">
     <div class="logo">FITCOACH <span>POWERED BY GEMINI</span></div>
     <div class="setup-step">STEP 1 OF 2 — API KEY</div>
@@ -949,32 +949,27 @@ async function loadFromIndexedDB() {
 
 // ─── INIT ────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', async () => {
-  // Show a brief loading state so Android doesn't flash the setup screen
-  document.body.style.opacity = '0';
+  // Load from all storage sources
+  loadState();
+  await loadStateAsync();
 
-  loadState();           // fast: localStorage/cookie
-  await loadStateAsync(); // slower: IndexedDB fallback
-
-  document.body.style.opacity = '1';
-
-  if (!state.apiKey) {
-    document.getElementById('setupScreen').style.display = 'flex';
-  } else if (!state.profile || !state.profile.age) {
-    // Check cookie fallback for profile too
+  // Recover profile from cookie if missing
+  if (!state.profile || !state.profile.age) {
     try {
       const pm = document.cookie.match(/fc_profile=([^;]+)/);
       if (pm) {
         const prof = JSON.parse(decodeURIComponent(pm[1]));
-        if (prof && prof.age) { state.profile = prof; }
+        if (prof && prof.age) state.profile = prof;
       }
     } catch(e) {}
+  }
 
-    if (!state.profile || !state.profile.age) {
-      document.getElementById('setupScreen').style.display = 'none';
-      document.getElementById('profileScreen').style.display = 'flex';
-    } else {
-      launchApp();
-    }
+  console.log('Init complete. apiKey:', state.apiKey ? 'YES ends '+state.apiKey.slice(-4) : 'NO', '| profile.age:', state.profile && state.profile.age ? state.profile.age : 'NO');
+
+  if (!state.apiKey) {
+    document.getElementById('setupScreen').style.display = 'flex';
+  } else if (!state.profile || !state.profile.age) {
+    document.getElementById('profileScreen').style.display = 'flex';
   } else {
     launchApp();
   }
