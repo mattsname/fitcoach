@@ -790,7 +790,7 @@ input[type="file"] { display: none; }
 
       <div class="section-sep">Nutrition Summary</div>
       <div class="card">
-        <div class="nutrition-overview">
+        <div style="display:flex;gap:14px;align-items:center;margin-bottom:14px">
           <div class="cal-ring">
             <svg width="90" height="90" viewBox="0 0 90 90">
               <circle cx="45" cy="45" r="38" fill="none" stroke="#222" stroke-width="7"/>
@@ -802,19 +802,24 @@ input[type="file"] { display: none; }
               <div class="cal-lbl">kcal</div>
             </div>
           </div>
-          <div class="nutrition-stats">
-            <div class="nutrition-row"><span class="n-label">Consumed</span><span class="n-val" id="nConsumed">0</span></div>
-            <div class="nutrition-row"><span class="n-label">Target</span><span class="n-val" id="nTarget">—</span></div>
+          <div class="cal-ring">
+            <svg width="90" height="90" viewBox="0 0 90 90">
+              <circle cx="45" cy="45" r="38" fill="none" stroke="#222" stroke-width="7"/>
+              <circle cx="45" cy="45" r="38" fill="none" stroke="#ff8c4a" stroke-width="7"
+                stroke-dasharray="238.76" stroke-dashoffset="238.76" id="proteinCircle" stroke-linecap="round"/>
+            </svg>
+            <div class="cal-ring-inner">
+              <div class="cal-big" id="proteinBig" style="color:#ff8c4a">0</div>
+              <div class="cal-lbl">protein</div>
+            </div>
+          </div>
+          <div class="nutrition-stats" style="flex:1">
+            <div class="nutrition-row"><span class="n-label">Calories</span><span class="n-val"><span id="nConsumed">0</span> / <span id="nTarget">—</span></span></div>
             <div class="nutrition-bar"><div class="nutrition-bar-fill" id="nBar" style="width:0%"></div></div>
-            <div class="nutrition-row"><span class="n-label" style="font-size:12px">Remaining</span><span class="n-val" id="nRemaining" style="color:var(--muted);font-size:12px">—</span></div>
+            <div class="nutrition-row" style="margin-top:6px"><span class="n-label">Protein</span><span class="n-val" style="color:#ff8c4a"><span id="proteinPct">0</span> / <span id="proteinTarget">—</span>g</span></div>
+            <div class="nutrition-bar"><div class="nutrition-bar-fill" id="proteinBar" style="width:0%;background:#ff8c4a"></div></div>
+            <div class="nutrition-row" style="margin-top:4px"><span class="n-label" style="font-size:11px">Remaining</span><span class="n-val" id="nRemaining" style="color:var(--muted);font-size:11px">—</span></div>
           </div>
-        </div>
-        <div style="margin-bottom:12px">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px">
-            <span style="font-size:11px;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;color:#ff8c4a">Protein</span>
-            <span id="proteinPct" style="font-size:12px;color:var(--muted)">0g / —g</span>
-          </div>
-          <div class="nutrition-bar"><div class="nutrition-bar-fill" id="proteinBar" style="width:0%;background:#ff8c4a"></div></div>
         </div>
         <div class="macro-grid">
           <div class="macro-box protein"><div class="macro-val" id="mProtein">0g</div><div class="macro-lbl">Protein</div></div>
@@ -1523,21 +1528,21 @@ function renderNutrition() {
   log.forEach(f => { cals += f.calories||0; protein += f.protein||0; carbs += f.carbs||0; fat += f.fat||0; });
   const calPct = Math.min(100, Math.round(cals/target*100));
   const proteinPct = Math.min(100, Math.round(protein/pTarget*100));
-  const circumference = 238.76;
-  document.getElementById('calCircle').style.strokeDashoffset = circumference - (circumference * calPct / 100);
+  const circ = 238.76;
+  document.getElementById('calCircle').style.strokeDashoffset = circ - (circ * calPct / 100);
   document.getElementById('calBig').textContent = cals;
+  document.getElementById('proteinCircle').style.strokeDashoffset = circ - (circ * proteinPct / 100);
+  document.getElementById('proteinBig').textContent = Math.round(protein);
   document.getElementById('nConsumed').textContent = cals;
   document.getElementById('nTarget').textContent = target;
   document.getElementById('nBar').style.width = calPct + '%';
+  document.getElementById('proteinBar').style.width = proteinPct + '%';
+  document.getElementById('proteinPct').textContent = Math.round(protein);
+  document.getElementById('proteinTarget').textContent = pTarget;
   document.getElementById('nRemaining').textContent = Math.max(0, target-cals) + ' kcal left';
   document.getElementById('mProtein').textContent = Math.round(protein) + 'g';
   document.getElementById('mCarbs').textContent = Math.round(carbs) + 'g';
   document.getElementById('mFat').textContent = Math.round(fat) + 'g';
-  // Protein progress bar
-  const pBar = document.getElementById('proteinBar');
-  const pLabel = document.getElementById('proteinPct');
-  if (pBar) pBar.style.width = proteinPct + '%';
-  if (pLabel) pLabel.textContent = Math.round(protein) + 'g / ' + pTarget + 'g (' + proteinPct + '%)';
 }
 
 // ── PROGRESS PHOTOS ──────────────────────────────────────────
@@ -1692,12 +1697,58 @@ window.sendChat = async () => {
     state.chatHistory.push({ role:'model', parts:[{text:reply}] });
     hideTyping();
     addMsgToUI('ai', reply);
+
+    // Check if coach made workout or schedule changes — if so, re-generate workout
+    const workoutTriggers = /swap|replace|change|switch|add|remove|instead|modify|update|adjust|restructure|incorporate|leg|push|pull|schedule/i;
+    const isWorkoutRelated = workoutTriggers.test(text);
+    if (isWorkoutRelated) {
+      await applyCoachWorkoutChanges(text, reply);
+    }
   } catch(e) {
     hideTyping();
     addMsgToUI('ai', '❌ Error: ' + e.message);
   }
   btn.disabled = false;
 };
+
+// When coach chat changes the workout, re-generate the exercise list incorporating those changes
+async function applyCoachWorkoutChanges(userMsg, coachReply) {
+  const sched = getSchedule();
+  const dow = selectedDay !== null ? selectedDay : new Date().getDay();
+  const s = sched[dow];
+  if (s.type === 'rest' || s.type === 'swim') return; // only applies to gym days
+
+  const today = todayStr();
+  const food = state.foodLog[today] || [];
+  const totalCals = food.reduce((a,b) => a+(b.calories||0), 0);
+
+  const prompt = buildSystemPrompt() + `
+
+The user just asked: "${userMsg}"
+You responded: "${coachReply.slice(0,400)}"
+
+Now generate an UPDATED ${s.label} workout that reflects any changes discussed above.
+Return ONLY this JSON, no markdown, no explanation:
+{"exercises":[{"name":"string","sets":number,"repsRange":"e.g. 8-12","suggestedWeight":number,"unit":"lbs","muscleGroup":"string","notes":"brief tip"}]}
+Include 5-7 exercises. Apply the changes the user requested.`;
+
+  try {
+    const res = await callGemini([{role:'user',parts:[{text:'Update workout based on our conversation'}]}], prompt);
+    const clean = res.replace(/\`\`\`json|\`\`\`/g,'').trim();
+    // Find JSON object
+    const jsonMatch = clean.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) return;
+    const data = JSON.parse(jsonMatch[0]);
+    if (data.exercises && data.exercises.length > 0) {
+      state.currentWorkout = data.exercises;
+      renderExerciseList(data.exercises);
+      if (state.uid) await fbSet(`users/${state.uid}/workouts/${today}`, { exercises: data.exercises, type: s.label, date: today });
+      showToast('✅ Workout updated based on your conversation');
+    }
+  } catch(e) {
+    console.warn('Could not auto-update workout:', e);
+  }
+}
 
 window.quickAsk = (text) => {
   document.getElementById('chatInput').value = text;
@@ -1742,7 +1793,11 @@ function buildSystemPrompt() {
   const sched = getSchedule();
   const dow = new Date().getDay();
 
+  const currentExercises = state.currentWorkout ? state.currentWorkout.map(e => e.name).join(', ') : 'none generated yet';
+
   return `You are a concise, direct personal fitness coach and nutritionist. Keep responses SHORT — one paragraph max then bullet points. No fluff, no repetition. Be specific and actionable.
+
+IMPORTANT: When the user asks to change exercises, swap movements, adjust their schedule, or modify their workout in any way — acknowledge the change AND know that the app will automatically update the workout list based on your conversation. So make your recommendation clearly.
 
 PROFILE: Age ${p.age}, Height ${p.height}in, Goal: ${p.goalWeight}lbs, Calories: ${p.calorieTarget}kcal/day, Protein: ${p.proteinTarget}g/day
 
@@ -1754,6 +1809,7 @@ TODAY (${today}, ${sched[dow]?.label} day):
 - Calories: ${totalCals}/${p.calorieTarget}kcal
 - Protein: ${Math.round(totalProtein)}g/${p.proteinTarget}g
 - Foods eaten: ${food.map(f=>f.name).join(', ')||'nothing yet'}
+- Current workout exercises: ${currentExercises}
 
 SCHEDULE: Mon/Wed/Fri = Gym (alternating Push/Pull each week), Tue or Thu = Swim, other days = Rest.`;
 }
@@ -1899,7 +1955,11 @@ window.switchTab = (name) => {
   document.getElementById(`panel-${name}`).classList.add('active');
   document.getElementById(`nav-${name}`).classList.add('active');
   document.getElementById('scrollArea').scrollTop = 0;
-  if(name==='progress') renderCharts();
+  if(name==='progress') {
+    // Destroy before showing panel to avoid rendering on hidden canvas
+    if(weightChartBigInst) { weightChartBigInst.destroy(); weightChartBigInst = null; }
+    requestAnimationFrame(() => renderBigChart());
+  }
 };
 
 // ── UTILS ────────────────────────────────────────────────────
