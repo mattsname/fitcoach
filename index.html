@@ -906,7 +906,7 @@ input[type="file"] { display: none; }
 <!-- Firebase -->
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-import { getAuth, GoogleAuthProvider, signInWithPopup, signOut as fbSignOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import { getAuth, GoogleAuthProvider, signInWithRedirect, getRedirectResult, signOut as fbSignOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import { getFirestore, doc, getDoc, setDoc, updateDoc, collection, addDoc, query, orderBy, getDocs, deleteDoc } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { Chart, registerables } from "https://cdn.jsdelivr.net/npm/chart.js@4.4.1/+esm";
 Chart.register(...registerables);
@@ -1020,7 +1020,7 @@ async function saveProfile() {
 window.signInWithGoogle = async () => {
   try {
     const provider = new GoogleAuthProvider();
-    await signInWithPopup(auth, provider);
+    await signInWithRedirect(auth, provider);
   } catch(e) {
     showToast('❌ Sign in failed: ' + e.message);
   }
@@ -1049,6 +1049,12 @@ window.signOut = async () => {
 
 onAuthStateChanged(auth, async (user) => {
   const loading = document.getElementById('loadingScreen');
+
+  // Handle redirect result first
+  try {
+    const result = await getRedirectResult(auth);
+    if (result?.user) user = result.user;
+  } catch(e) { console.warn('redirect result error', e); }
 
   if (user) {
     state.uid = user.uid;
