@@ -1261,8 +1261,15 @@ window.generateWorkout = async () => {
   const totalProtein = food.reduce((a,b) => a+(b.protein||0), 0);
   const latestWeight = state.weightLog.slice(-1)[0];
 
+  // Include any coach instructions from recent conversation
+  const recentCoachContext = state.chatHistory.slice(-6)
+    .map(m => (m.role === 'user' ? 'User: ' : 'Coach: ') + (m.parts?.[0]?.text || ''))
+    .join('\n');
+
   const prompt = buildSystemPrompt() + `\n\nGenerate a specific ${s.label} workout for today in JSON format only. No markdown, no preamble.
 Context: calories eaten today: ${totalCals}kcal (target: ${state.profile.calorieTarget}), protein: ${Math.round(totalProtein)}g, weight: ${latestWeight ? latestWeight.weight+'lbs' : 'unknown'}.
+${recentCoachContext ? `\nRECENT COACH CONVERSATION (apply any exercise changes discussed):\n${recentCoachContext}\n` : ''}
+IMPORTANT: If the recent conversation requested specific exercise swaps, additions, or removals — apply them now.
 Return this exact structure:
 {"exercises":[{"name":"string","sets":number,"repsRange":"e.g. 8-12","suggestedWeight":number,"unit":"lbs","muscleGroup":"string","notes":"brief tip"}]}
 Include 5-7 exercises appropriate for ${s.label} day. suggestedWeight should be realistic starting weight in lbs.`;
@@ -1687,6 +1694,9 @@ window.sendBriefing = async () => {
   try {
     const res = await callGemini([{role:'user',parts:[{text}]}], prompt);
     content.innerHTML = formatBriefing(res);
+    // Store in chatHistory so Generate Workout picks up any exercise instructions
+    state.chatHistory.push({ role:'user', parts:[{text}] });
+    state.chatHistory.push({ role:'model', parts:[{text:res}] });
     // Also detect and apply any schedule changes from the briefing input
     detectAndApplyScheduleChanges(text);
   } catch(e) {
