@@ -809,6 +809,13 @@ input[type="file"] { display: none; }
             <div class="nutrition-row"><span class="n-label" style="font-size:12px">Remaining</span><span class="n-val" id="nRemaining" style="color:var(--muted);font-size:12px">—</span></div>
           </div>
         </div>
+        <div style="margin-bottom:12px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px">
+            <span style="font-size:11px;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;color:#ff8c4a">Protein</span>
+            <span id="proteinPct" style="font-size:12px;color:var(--muted)">0g / —g</span>
+          </div>
+          <div class="nutrition-bar"><div class="nutrition-bar-fill" id="proteinBar" style="width:0%;background:#ff8c4a"></div></div>
+        </div>
         <div class="macro-grid">
           <div class="macro-box protein"><div class="macro-val" id="mProtein">0g</div><div class="macro-lbl">Protein</div></div>
           <div class="macro-box carbs"><div class="macro-val" id="mCarbs">0g</div><div class="macro-lbl">Carbs</div></div>
@@ -826,7 +833,14 @@ input[type="file"] { display: none; }
       </div>
 
       <div class="card">
-        <div class="card-label">Weight Journey</div>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+          <div class="card-label" style="margin-bottom:0">Weight Journey</div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <button class="btn btn-ghost btn-sm" onclick="shiftChart(-1)" style="padding:4px 10px;font-size:14px">◀</button>
+            <span id="chartRangeLabel" style="font-size:11px;color:var(--muted);min-width:90px;text-align:center"></span>
+            <button class="btn btn-ghost btn-sm" onclick="shiftChart(1)" style="padding:4px 10px;font-size:14px">▶</button>
+          </div>
+        </div>
         <canvas id="weightChartBig" style="width:100%;height:180px"></canvas>
       </div>
 
@@ -1153,12 +1167,30 @@ function renderWeekStrip() {
   }).join('');
 }
 
+let selectedDay = null;
+
 window.selectDay = (day) => {
+  selectedDay = day;
   const sched = getSchedule();
   const s = sched[day];
   document.getElementById('todayType').textContent = s.label;
   document.getElementById('todayType').className = `workout-type ${s.type}`;
   document.getElementById('todayMeta').innerHTML = s.type === 'rest' ? 'Active recovery day' : s.type === 'swim' ? '<span>Cardio + Full body</span> · 30–45 min' : `<span>${s.label} Day</span> · Gym`;
+
+  // Update week strip active state
+  document.querySelectorAll('.day-pill').forEach((p,i) => {
+    p.classList.toggle('today', i === day);
+  });
+
+  // Clear current workout and prompt regeneration
+  document.getElementById('exerciseList').innerHTML = `
+    <div style="color:var(--muted);font-size:13px;padding:8px 0">
+      ${s.type === 'rest' ? '😴 Rest day — active recovery recommended.' : s.type === 'swim' ? '🏊 Swim day — hop in the pool!' : 'Tap "Generate Plan" to load ' + s.label + ' workout.'}
+    </div>`;
+
+  // Update generate button label
+  const btn = document.getElementById('genWorkoutBtn');
+  if (btn && s.type !== 'rest') btn.textContent = 'Generate ' + s.label;
 };
 
 function renderTodayWorkout() {
@@ -1180,7 +1212,7 @@ window.generateWorkout = async () => {
   btn.disabled = true;
 
   const sched = getSchedule();
-  const dow = new Date().getDay();
+  const dow = selectedDay !== null ? selectedDay : new Date().getDay();
   const s = sched[dow];
   const today = todayStr();
   const food = state.foodLog[today] || [];
@@ -1312,47 +1344,71 @@ window.logWeight = async () => {
 };
 
 // ── CHARTS ───────────────────────────────────────────────────
+let chartOffset = 0; // offset in 2-month increments from the end
+
 function renderCharts() {
+  renderMiniChart();
+  renderBigChart();
+}
+
+function renderMiniChart() {
   const log = state.weightLog.slice(-30);
   const labels = log.map(e => e.date.slice(5));
   const data = log.map(e => e.weight);
   const minY = data.length ? Math.min(...data) - 2 : 150;
   const maxY = data.length ? Math.max(...data) + 2 : 200;
-
-  const cfg = (mini) => ({
-    type: 'line',
-    data: {
-      labels,
-      datasets: [{
-        data,
-        borderColor: '#ff5c1a',
-        backgroundColor: 'rgba(255,92,26,0.1)',
-        borderWidth: 2.5,
-        pointRadius: mini ? 2 : 4,
-        pointBackgroundColor: '#ff5c1a',
-        fill: true, tension: 0.4,
-      }]
-    },
-    options: {
-      responsive: true, maintainAspectRatio: false, animation: false,
-      plugins: { legend: { display: false } },
-      scales: {
-        x: { ticks: { color: '#666', font: { size: 10 }, maxTicksLimit: 7, maxRotation: 0 }, grid: { color: '#222' } },
-        y: { ticks: { color: '#666', font: { size: 10 }, maxTicksLimit: 5 }, grid: { color: '#222' }, min: minY, max: maxY }
-      }
-    }
-  });
-
   const c1 = document.getElementById('weightChart');
   if (weightChartInst) { weightChartInst.destroy(); weightChartInst = null; }
   c1.style.height = '120px';
-  weightChartInst = new Chart(c1.getContext('2d'), cfg(true));
+  weightChartInst = new Chart(c1.getContext('2d'), {
+    type: 'line',
+    data: { labels, datasets: [{ data, borderColor: '#ff5c1a', backgroundColor: 'rgba(255,92,26,0.1)', borderWidth: 2.5, pointRadius: 2, pointBackgroundColor: '#ff5c1a', fill: true, tension: 0.4 }] },
+    options: { responsive: true, maintainAspectRatio: false, animation: false, plugins: { legend: { display: false } }, scales: { x: { ticks: { color: '#666', font: { size: 10 }, maxTicksLimit: 7, maxRotation: 0 }, grid: { color: '#222' } }, y: { ticks: { color: '#666', font: { size: 10 }, maxTicksLimit: 5 }, grid: { color: '#222' }, min: minY, max: maxY } } }
+  });
+}
+
+function renderBigChart() {
+  const allLog = state.weightLog;
+  if (!allLog.length) return;
+
+  // Work out 2-month window
+  const WINDOW_DAYS = 61;
+  const totalDays = allLog.length;
+  // End index (exclusive): offset 0 = most recent, offset 1 = 2 months earlier, etc.
+  const endIdx = Math.max(WINDOW_DAYS, totalDays - chartOffset * WINDOW_DAYS);
+  const startIdx = Math.max(0, endIdx - WINDOW_DAYS);
+  const slice = allLog.slice(startIdx, endIdx);
+
+  const labels = slice.map(e => e.date.slice(5));
+  const data = slice.map(e => e.weight);
+  const minY = data.length ? Math.min(...data) - 2 : 150;
+  const maxY = data.length ? Math.max(...data) + 2 : 200;
+
+  // Update range label
+  if (slice.length) {
+    const from = slice[0].date.slice(0,7).replace('-','/');
+    const to = slice[slice.length-1].date.slice(0,7).replace('-','/');
+    const lbl = document.getElementById('chartRangeLabel');
+    if (lbl) lbl.textContent = from === to ? from : from + ' – ' + to;
+  }
 
   const c2 = document.getElementById('weightChartBig');
   if (weightChartBigInst) { weightChartBigInst.destroy(); weightChartBigInst = null; }
   c2.style.height = '180px';
-  weightChartBigInst = new Chart(c2.getContext('2d'), cfg(false));
+  weightChartBigInst = new Chart(c2.getContext('2d'), {
+    type: 'line',
+    data: { labels, datasets: [{ data, borderColor: '#ff5c1a', backgroundColor: 'rgba(255,92,26,0.1)', borderWidth: 2.5, pointRadius: 4, pointBackgroundColor: '#ff5c1a', fill: true, tension: 0.4 }] },
+    options: { responsive: true, maintainAspectRatio: false, animation: false, plugins: { legend: { display: false } }, scales: { x: { ticks: { color: '#666', font: { size: 10 }, maxTicksLimit: 8, maxRotation: 0 }, grid: { color: '#222' } }, y: { ticks: { color: '#666', font: { size: 10 }, maxTicksLimit: 5 }, grid: { color: '#222' }, min: minY, max: maxY } } }
+  });
 }
+
+window.shiftChart = (dir) => {
+  const allLog = state.weightLog;
+  const WINDOW_DAYS = 61;
+  const maxOffset = Math.max(0, Math.ceil(allLog.length / WINDOW_DAYS) - 1);
+  chartOffset = Math.max(0, Math.min(maxOffset, chartOffset + dir));
+  renderBigChart();
+};
 
 function renderProgressStats() {
   const log = state.weightLog;
@@ -1465,17 +1521,23 @@ function renderNutrition() {
   const pTarget = parseInt(state.profile.proteinTarget) || 150;
   let cals = 0, protein = 0, carbs = 0, fat = 0;
   log.forEach(f => { cals += f.calories||0; protein += f.protein||0; carbs += f.carbs||0; fat += f.fat||0; });
-  const pct = Math.min(100, Math.round(cals/target*100));
+  const calPct = Math.min(100, Math.round(cals/target*100));
+  const proteinPct = Math.min(100, Math.round(protein/pTarget*100));
   const circumference = 238.76;
-  document.getElementById('calCircle').style.strokeDashoffset = circumference - (circumference * pct / 100);
+  document.getElementById('calCircle').style.strokeDashoffset = circumference - (circumference * calPct / 100);
   document.getElementById('calBig').textContent = cals;
   document.getElementById('nConsumed').textContent = cals;
   document.getElementById('nTarget').textContent = target;
-  document.getElementById('nBar').style.width = pct + '%';
+  document.getElementById('nBar').style.width = calPct + '%';
   document.getElementById('nRemaining').textContent = Math.max(0, target-cals) + ' kcal left';
   document.getElementById('mProtein').textContent = Math.round(protein) + 'g';
   document.getElementById('mCarbs').textContent = Math.round(carbs) + 'g';
   document.getElementById('mFat').textContent = Math.round(fat) + 'g';
+  // Protein progress bar
+  const pBar = document.getElementById('proteinBar');
+  const pLabel = document.getElementById('proteinPct');
+  if (pBar) pBar.style.width = proteinPct + '%';
+  if (pLabel) pLabel.textContent = Math.round(protein) + 'g / ' + pTarget + 'g (' + proteinPct + '%)';
 }
 
 // ── PROGRESS PHOTOS ──────────────────────────────────────────
