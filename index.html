@@ -994,12 +994,19 @@ function getSchedule() {
 function applyScheduleOverride(dayIndex, type) {
   if (!state.customSchedule) state.customSchedule = {};
   state.customSchedule[dayIndex] = type;
-  // Persist to Firebase
+  // Persist to Firebase and localStorage
   if (state.uid) fbSet(`users/${state.uid}/profile/main`, { ...state.profile, customSchedule: state.customSchedule });
   saveLocal();
+  // Re-render week strip and today's workout header
   renderWeekStrip();
-  renderTodayWorkout();
-  showToast(`✅ Schedule updated: ${DAYS[dayIndex]} is now ${type.toUpperCase()}`);
+  // If this day is currently selected/today, update the workout display too
+  const effectiveDay = selectedDay !== null ? selectedDay : new Date().getDay();
+  if (dayIndex === effectiveDay) {
+    renderTodayWorkout();
+    // Clear exercise list so user knows to regenerate
+    document.getElementById('exerciseList').innerHTML = `<div style="color:var(--orange);font-size:13px;padding:8px 0">📋 Schedule updated — tap Generate to load your new ${type.toUpperCase()} workout.</div>`;
+  }
+  showToast(`✅ ${DAYS[dayIndex]} → ${type.toUpperCase()}`);
 }
 
 const DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
@@ -1143,7 +1150,7 @@ onAuthStateChanged(auth, async (user) => {
 // ── LOCAL STORAGE FALLBACK ────────────────────────────────────
 function saveLocal() {
   try {
-    const d = { apiKey: state.apiKey, profile: state.profile, weightLog: state.weightLog, foodLog: state.foodLog };
+    const d = { apiKey: state.apiKey, profile: state.profile, weightLog: state.weightLog, foodLog: state.foodLog, customSchedule: state.customSchedule };
     localStorage.setItem('fc_local', JSON.stringify(d));
   } catch(e) {}
 }
@@ -1163,6 +1170,7 @@ function loadLocal() {
       if (d.profile) state.profile = d.profile;
       if (d.weightLog) state.weightLog = d.weightLog;
       if (d.foodLog) state.foodLog = d.foodLog;
+      if (d.customSchedule) state.customSchedule = d.customSchedule;
     }
   } catch(e) {}
 }
@@ -1225,7 +1233,7 @@ window.selectDay = (day) => {
 
 function renderTodayWorkout() {
   const sched = getSchedule();
-  const dow = new Date().getDay();
+  const dow = selectedDay !== null ? selectedDay : new Date().getDay();
   const s = sched[dow];
   document.getElementById('todayType').textContent = s.label;
   document.getElementById('todayType').className = `workout-type ${s.type}`;
@@ -1233,6 +1241,8 @@ function renderTodayWorkout() {
   if (s.type === 'rest') metaEl.textContent = 'Rest & recovery day';
   else if (s.type === 'swim') metaEl.innerHTML = '<span>Cardio + Full body</span> · 30–45 min';
   else metaEl.innerHTML = `<span>${s.label} Day</span> · Gym`;
+  const btn = document.getElementById('genWorkoutBtn');
+  if (btn) btn.textContent = s.type === 'rest' ? 'Rest Day' : s.type === 'swim' ? 'Swim Day' : `Generate ${s.label}`;
 }
 
 // ── GENERATE WORKOUT ─────────────────────────────────────────
@@ -1397,29 +1407,58 @@ function renderMiniChart() {
 }
 
 function renderBigChart() {
-  // Filter out bad/zero entries (only keep plausible human weights 66-660 lbs)
   const allLog = state.weightLog.filter(e => e.weight >= 66 && e.weight <= 660);
   if (!allLog.length) return;
 
-  // Work out 2-month window
-  const WINDOW_DAYS = 61;
-  const totalDays = allLog.length;
-  const endIdx = Math.max(WINDOW_DAYS, totalDays - chartOffset * WINDOW_DAYS);
-  const startIdx = Math.max(0, endIdx - WINDOW_DAYS);
-  const slice = allLog.slice(startIdx, endIdx);
+  // 1-month window: chartOffset 0 = latest month, 1 = one month earlier, etc.
+  // Find the date range for this offset
+  const latestDate = new Date(allLog[allLog.length-1].date);
+  const earliestDate = new Date(allLog[0].date);
 
-  const labels = slice.map(e => e.date.slice(5));
-  const data = slice.map(e => e.weight);
-  const minY = data.length ? Math.min(...data) - 3 : 150;
-  const maxY = data.length ? Math.max(...data) + 3 : 200;
+  // End of window = latest date minus (offset) months
+  const windowEnd = new Date(latestDate);
+  windowEnd.setMonth(windowEnd.getMonth() - chartOffset);
 
-  // Update range label
-  if (slice.length) {
-    const from = slice[0].date.slice(0,7).replace('-','/');
-    const to = slice[slice.length-1].date.slice(0,7).replace('-','/');
+  // Start of window = 1 month before end
+  const windowStart = new Date(windowEnd);
+  windowStart.setMonth(windowStart.getMonth() - 1);
+
+  // Clamp: can't go before earliest data
+  if (windowStart < earliestDate) windowStart.setTime(earliestDate.getTime());
+
+  // Filter entries in this window
+  const slice = allLog.filter(e => {
+    const d = new Date(e.date);
+    return d >= windowStart && d <= windowEnd;
+  });
+
+  // Nav button states
+  const prevBtn = document.querySelector('[onclick="shiftChart(-1)"]');
+  const nextBtn = document.querySelector('[onclick="shiftChart(1)"]');
+  const maxOffset = Math.ceil((latestDate - earliestDate) / (30 * 24 * 3600 * 1000));
+  if (prevBtn) prevBtn.disabled = chartOffset >= maxOffset;
+  if (nextBtn) nextBtn.disabled = chartOffset <= 0;
+
+  if (!slice.length) {
     const lbl = document.getElementById('chartRangeLabel');
-    if (lbl) lbl.textContent = from === to ? from : from + ' – ' + to;
+    if (lbl) lbl.textContent = 'No data';
+    return;
   }
+
+  const labels = slice.map(e => {
+    const d = new Date(e.date);
+    return (d.getMonth()+1) + '/' + d.getDate() + ' ' + d.getFullYear().toString().slice(2);
+  });
+  const data = slice.map(e => e.weight);
+  const minY = Math.min(...data) - 2;
+  const maxY = Math.max(...data) + 2;
+
+  // Range label with year
+  const fromD = new Date(slice[0].date);
+  const toD = new Date(slice[slice.length-1].date);
+  const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const lbl = document.getElementById('chartRangeLabel');
+  if (lbl) lbl.textContent = monthNames[fromD.getMonth()] + ' ' + fromD.getFullYear() + ' – ' + monthNames[toD.getMonth()] + ' ' + toD.getFullYear();
 
   const c2 = document.getElementById('weightChartBig');
   if (weightChartBigInst) { weightChartBigInst.destroy(); weightChartBigInst = null; }
@@ -1431,9 +1470,11 @@ function renderBigChart() {
 }
 
 window.shiftChart = (dir) => {
-  const allLog = state.weightLog;
-  const WINDOW_DAYS = 61;
-  const maxOffset = Math.max(0, Math.ceil(allLog.length / WINDOW_DAYS) - 1);
+  const allLog = state.weightLog.filter(e => e.weight >= 66 && e.weight <= 660);
+  if (!allLog.length) return;
+  const latestDate = new Date(allLog[allLog.length-1].date);
+  const earliestDate = new Date(allLog[0].date);
+  const maxOffset = Math.ceil((latestDate - earliestDate) / (30 * 24 * 3600 * 1000));
   chartOffset = Math.max(0, Math.min(maxOffset, chartOffset + dir));
   renderBigChart();
 };
