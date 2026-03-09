@@ -731,7 +731,7 @@ input[type="file"] { display: none; }
           <div class="briefing-title">Coach Briefing</div>
           <div class="briefing-time" id="briefingTime"></div>
         </div>
-        <div id="briefingContent">
+        <div id="briefingContent" style="max-height:180px;overflow-y:auto;-webkit-overflow-scrolling:touch">
           <div style="color:var(--muted);font-size:13px">Loading your daily briefing...</div>
         </div>
         <div class="briefing-input-row">
@@ -1020,8 +1020,9 @@ async function fbSet(path, data) {
 }
 
 async function loadUserData() {
-  if (!state.uid) return;
+  if (!state.uid) { console.log('[FitCoach] loadUserData: no uid, skipping'); return; }
   const base = `users/${state.uid}`;
+  console.log('[FitCoach] loadUserData: loading for uid', state.uid);
 
   const profile = await fbGet(`${base}/profile/main`);
   if (profile) {
@@ -1033,8 +1034,15 @@ async function loadUserData() {
   state.weightLog = weightSnap.docs.map(d => d.data());
 
   const today = todayStr();
+  console.log('[FitCoach] loadUserData: fetching food for', today, 'path:', `${base}/food/${today}`);
   const food = await fbGet(`${base}/food/${today}`);
-  if (food && food.items) state.foodLog[today] = food.items;
+  console.log('[FitCoach] loadUserData: food result:', food);
+  if (food && food.items) {
+    state.foodLog[today] = food.items;
+    console.log('[FitCoach] loadUserData: loaded', food.items.length, 'food items');
+  } else {
+    console.log('[FitCoach] loadUserData: no food items found in Firestore for today');
+  }
 }
 
 async function saveProfile() {
@@ -1536,8 +1544,14 @@ window.analyseFood = async () => {
     if (!state.foodLog[today]) state.foodLog[today] = [];
     data.items.forEach(item => state.foodLog[today].push(item));
 
+    console.log('[FitCoach] analyseFood: uid=', state.uid, 'items=', state.foodLog[today].length);
     if (state.uid) {
-      await fbSet(`users/${state.uid}/food/${today}`, { items: state.foodLog[today], date: today });
+      const path = `users/${state.uid}/food/${today}`;
+      console.log('[FitCoach] analyseFood: saving to Firestore path:', path);
+      await fbSet(path, { items: state.foodLog[today], date: today });
+      console.log('[FitCoach] analyseFood: Firestore save complete');
+    } else {
+      console.warn('[FitCoach] analyseFood: no uid — food NOT saved to Firestore');
     }
     saveLocal();
 
@@ -1577,7 +1591,14 @@ function renderFoodLog() {
 window.removeFood = async (idx) => {
   const today = todayStr();
   state.foodLog[today].splice(idx, 1);
-  if (state.uid) await fbSet(`users/${state.uid}/food/${today}`, { items: state.foodLog[today], date: today });
+  console.log('[FitCoach] removeFood: uid=', state.uid, 'remaining items=', state.foodLog[today].length);
+  if (state.uid) {
+    const path = `users/${state.uid}/food/${today}`;
+    console.log('[FitCoach] removeFood: saving to Firestore path:', path);
+    await fbSet(path, { items: state.foodLog[today], date: today });
+  } else {
+    console.warn('[FitCoach] removeFood: no uid — food NOT saved to Firestore');
+  }
   saveLocal();
   renderFoodLog();
   renderNutrition();
