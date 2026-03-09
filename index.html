@@ -627,12 +627,9 @@ input[type="file"] { display: none; }
       <svg viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
       Continue with Google
     </button>
-    <div class="divider"><span>or enter API key manually</span></div>
-    <div class="form-group">
-      <label class="form-label">Gemini API Key</label>
-      <input type="password" id="manualApiKey" placeholder="AIza...">
-    </div>
-    <button class="btn btn-ghost btn-full" onclick="continueWithKey()">Continue without Google →</button>
+    <div class="divider"><span>or</span></div>
+    <button class="btn btn-ghost btn-full" onclick="continueAnonymously()" style="margin-bottom:6px">Continue without Google →</button>
+    <p style="font-size:11px;color:var(--muted);text-align:center;margin:0">Data syncs to Firestore. Add your Gemini API key in Settings.</p>
   </div>
 </div>
 
@@ -921,7 +918,7 @@ input[type="file"] { display: none; }
 <!-- Firebase -->
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-import { getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, signOut as fbSignOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import { getAuth, GoogleAuthProvider, signInWithRedirect, getRedirectResult, signInAnonymously, signOut as fbSignOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import { getFirestore, doc, getDoc, setDoc, updateDoc, collection, addDoc, query, orderBy, getDocs, deleteDoc } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { Chart, registerables } from "https://cdn.jsdelivr.net/npm/chart.js@4.4.1/+esm";
 Chart.register(...registerables);
@@ -1070,34 +1067,20 @@ async function saveProfile() {
 }
 
 // ── AUTH ─────────────────────────────────────────────────────
-const isMobile = /Android|iPhone|iPad/i.test(navigator.userAgent);
-
 window.signInWithGoogle = async () => {
   const provider = new GoogleAuthProvider();
   try {
-    if (isMobile) {
-      // signInWithRedirect triggers "requested action is invalid" on Android
-      // Chrome — use popup instead which works reliably on mobile browsers.
-      await signInWithPopup(auth, provider);
-    } else {
-      await signInWithRedirect(auth, provider);
-    }
+    await signInWithRedirect(auth, provider);
   } catch(e) {
-    if (e.code === 'auth/popup-closed-by-user') return; // user dismissed
     showToast('❌ Sign in failed: ' + e.message);
   }
 };
 
-window.continueWithKey = () => {
-  const key = document.getElementById('manualApiKey').value.trim();
-  if (!key.startsWith('AIza')) { showToast('⚠️ Invalid API key'); return; }
-  state.apiKey = key;
-  saveLocal();
-  document.getElementById('authScreen').style.display = 'none';
-  if (!state.profile.age) {
-    document.getElementById('setupScreen').style.display = 'block';
-  } else {
-    launchApp();
+window.continueAnonymously = async () => {
+  try {
+    await signInAnonymously(auth);
+  } catch(e) {
+    showToast('❌ Could not sign in: ' + e.message);
   }
 };
 
@@ -1109,58 +1092,63 @@ window.signOut = async () => {
   } catch(e) {}
 };
 
-onAuthStateChanged(auth, async (user) => {
-  const loading = document.getElementById('loadingScreen');
-
-  // Handle redirect result — only needed on desktop (mobile uses popup)
-  if (!isMobile) {
-    try {
-      const result = await getRedirectResult(auth);
-      if (result?.user) user = result.user;
-    } catch(e) {
-      console.warn('[FitCoach] getRedirectResult error:', e.code, e.message);
+// ── AUTH INITIALIZATION ───────────────────────────────────────
+// getRedirectResult MUST be called unconditionally on every page load
+// before onAuthStateChanged is registered, so that the auth state
+// reflects the completed redirect before the listener fires.
+(async () => {
+  console.log('[FitCoach] Auth init: calling getRedirectResult...');
+  try {
+    const result = await getRedirectResult(auth);
+    if (result?.user) {
+      console.log('[FitCoach] getRedirectResult: redirect sign-in succeeded, uid =', result.user.uid);
+    } else {
+      console.log('[FitCoach] getRedirectResult: no pending redirect result');
     }
+  } catch(e) {
+    console.error('[FitCoach] getRedirectResult ERROR — code:', e.code, '| message:', e.message, '| full error:', e);
   }
 
-  if (user) {
-    state.uid = user.uid;
-    // Get API key from local storage
-    loadLocal();
-    await loadUserData();
+  onAuthStateChanged(auth, async (user) => {
+    const loading = document.getElementById('loadingScreen');
 
-    // Update avatar
-    const avatar = document.getElementById('userAvatar');
-    if (user.photoURL) {
-      avatar.innerHTML = `<img src="${user.photoURL}">`;
-    } else {
-      avatar.textContent = user.displayName?.[0] || user.email?.[0] || '?';
-    }
+    if (user) {
+      state.uid = user.uid;
+      loadLocal();
+      await loadUserData();
 
-    loading.classList.add('hidden');
-    setTimeout(() => loading.style.display = 'none', 300);
+      const avatar = document.getElementById('userAvatar');
+      if (user.photoURL) {
+        avatar.innerHTML = `<img src="${user.photoURL}">`;
+      } else {
+        avatar.textContent = user.displayName?.[0] || user.email?.[0] || '?';
+      }
 
-    if (!state.profile.age) {
-      document.getElementById('setupScreen').style.display = 'block';
-    } else {
-      launchApp();
-    }
-  } else {
-    // Not signed in — check for local key
-    loadLocal();
-    loading.classList.add('hidden');
-    setTimeout(() => loading.style.display = 'none', 300);
+      loading.classList.add('hidden');
+      setTimeout(() => loading.style.display = 'none', 300);
 
-    if (state.apiKey) {
       if (!state.profile.age) {
         document.getElementById('setupScreen').style.display = 'block';
       } else {
         launchApp();
       }
     } else {
-      document.getElementById('authScreen').style.display = 'flex';
+      loadLocal();
+      loading.classList.add('hidden');
+      setTimeout(() => loading.style.display = 'none', 300);
+
+      if (state.apiKey) {
+        if (!state.profile.age) {
+          document.getElementById('setupScreen').style.display = 'block';
+        } else {
+          launchApp();
+        }
+      } else {
+        document.getElementById('authScreen').style.display = 'flex';
+      }
     }
-  }
-});
+  });
+})();
 
 // ── LOCAL STORAGE FALLBACK ────────────────────────────────────
 function saveLocal() {
