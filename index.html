@@ -1070,27 +1070,21 @@ async function saveProfile() {
 }
 
 // ── AUTH ─────────────────────────────────────────────────────
+const isMobile = /Android|iPhone|iPad/i.test(navigator.userAgent);
+
 window.signInWithGoogle = async () => {
   const provider = new GoogleAuthProvider();
-  // Popup works on modern Android Chrome and avoids the redirect
-  // "requested action is invalid" error in Custom Tabs / in-app browsers.
-  // Fall back to redirect only if popup is explicitly blocked.
   try {
-    await signInWithPopup(auth, provider);
-    // onAuthStateChanged fires automatically after popup success
-  } catch(e) {
-    if (e.code === 'auth/popup-blocked' || e.code === 'auth/cancelled-popup-request') {
-      // Browser blocked the popup — fall back to redirect flow
-      try {
-        await signInWithRedirect(auth, provider);
-      } catch(e2) {
-        showToast('❌ Sign in failed: ' + e2.message);
-      }
-    } else if (e.code === 'auth/popup-closed-by-user') {
-      // User dismissed the popup — do nothing
+    if (isMobile) {
+      // signInWithRedirect triggers "requested action is invalid" on Android
+      // Chrome — use popup instead which works reliably on mobile browsers.
+      await signInWithPopup(auth, provider);
     } else {
-      showToast('❌ Sign in failed: ' + e.message);
+      await signInWithRedirect(auth, provider);
     }
+  } catch(e) {
+    if (e.code === 'auth/popup-closed-by-user') return; // user dismissed
+    showToast('❌ Sign in failed: ' + e.message);
   }
 };
 
@@ -1118,16 +1112,14 @@ window.signOut = async () => {
 onAuthStateChanged(auth, async (user) => {
   const loading = document.getElementById('loadingScreen');
 
-  // Handle redirect result first (only relevant if redirect flow was used)
-  try {
-    const result = await getRedirectResult(auth);
-    if (result?.user) user = result.user;
-  } catch(e) {
-    // "auth/invalid-action" / "requested action is invalid" means the redirect
-    // couldn't complete (e.g. Chrome Custom Tabs, in-app browser).
-    // Log it and let the normal auth state continue — the user will see the
-    // sign-in screen and can tap the button again (popup will be used next time).
-    console.warn('[FitCoach] getRedirectResult error (safe to ignore on mobile):', e.code, e.message);
+  // Handle redirect result — only needed on desktop (mobile uses popup)
+  if (!isMobile) {
+    try {
+      const result = await getRedirectResult(auth);
+      if (result?.user) user = result.user;
+    } catch(e) {
+      console.warn('[FitCoach] getRedirectResult error:', e.code, e.message);
+    }
   }
 
   if (user) {
