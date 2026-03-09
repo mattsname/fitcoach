@@ -918,7 +918,7 @@ input[type="file"] { display: none; }
 <!-- Firebase -->
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-import { getAuth, GoogleAuthProvider, signInWithRedirect, getRedirectResult, signInAnonymously, signOut as fbSignOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import { getAuth, GoogleAuthProvider, signInWithPopup, signInAnonymously, signOut as fbSignOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import { getFirestore, doc, getDoc, setDoc, updateDoc, collection, addDoc, query, orderBy, getDocs, deleteDoc } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { Chart, registerables } from "https://cdn.jsdelivr.net/npm/chart.js@4.4.1/+esm";
 Chart.register(...registerables);
@@ -1067,13 +1067,11 @@ async function saveProfile() {
 }
 
 // ── AUTH ─────────────────────────────────────────────────────
-window.signInWithGoogle = async () => {
+window.signInWithGoogle = () => {
   const provider = new GoogleAuthProvider();
-  try {
-    await signInWithRedirect(auth, provider);
-  } catch(e) {
-    showToast('❌ Sign in failed: ' + e.message);
-  }
+  signInWithPopup(auth, provider)
+    .then(result => { /* onAuthStateChanged handles the rest */ })
+    .catch(err => alert('Sign in error: ' + err.message));
 };
 
 window.continueAnonymously = async () => {
@@ -1092,63 +1090,45 @@ window.signOut = async () => {
   } catch(e) {}
 };
 
-// ── AUTH INITIALIZATION ───────────────────────────────────────
-// getRedirectResult MUST be called unconditionally on every page load
-// before onAuthStateChanged is registered, so that the auth state
-// reflects the completed redirect before the listener fires.
-(async () => {
-  console.log('[FitCoach] Auth init: calling getRedirectResult...');
-  try {
-    const result = await getRedirectResult(auth);
-    if (result?.user) {
-      console.log('[FitCoach] getRedirectResult: redirect sign-in succeeded, uid =', result.user.uid);
+onAuthStateChanged(auth, async (user) => {
+  const loading = document.getElementById('loadingScreen');
+
+  if (user) {
+    state.uid = user.uid;
+    loadLocal();
+    await loadUserData();
+
+    const avatar = document.getElementById('userAvatar');
+    if (user.photoURL) {
+      avatar.innerHTML = `<img src="${user.photoURL}">`;
     } else {
-      console.log('[FitCoach] getRedirectResult: no pending redirect result');
+      avatar.textContent = user.displayName?.[0] || user.email?.[0] || '?';
     }
-  } catch(e) {
-    console.error('[FitCoach] getRedirectResult ERROR — code:', e.code, '| message:', e.message, '| full error:', e);
-  }
 
-  onAuthStateChanged(auth, async (user) => {
-    const loading = document.getElementById('loadingScreen');
+    loading.classList.add('hidden');
+    setTimeout(() => loading.style.display = 'none', 300);
 
-    if (user) {
-      state.uid = user.uid;
-      loadLocal();
-      await loadUserData();
+    if (!state.profile.age) {
+      document.getElementById('setupScreen').style.display = 'block';
+    } else {
+      launchApp();
+    }
+  } else {
+    loadLocal();
+    loading.classList.add('hidden');
+    setTimeout(() => loading.style.display = 'none', 300);
 
-      const avatar = document.getElementById('userAvatar');
-      if (user.photoURL) {
-        avatar.innerHTML = `<img src="${user.photoURL}">`;
-      } else {
-        avatar.textContent = user.displayName?.[0] || user.email?.[0] || '?';
-      }
-
-      loading.classList.add('hidden');
-      setTimeout(() => loading.style.display = 'none', 300);
-
+    if (state.apiKey) {
       if (!state.profile.age) {
         document.getElementById('setupScreen').style.display = 'block';
       } else {
         launchApp();
       }
     } else {
-      loadLocal();
-      loading.classList.add('hidden');
-      setTimeout(() => loading.style.display = 'none', 300);
-
-      if (state.apiKey) {
-        if (!state.profile.age) {
-          document.getElementById('setupScreen').style.display = 'block';
-        } else {
-          launchApp();
-        }
-      } else {
-        document.getElementById('authScreen').style.display = 'flex';
-      }
+      document.getElementById('authScreen').style.display = 'flex';
     }
-  });
-})();
+  }
+});
 
 // ── LOCAL STORAGE FALLBACK ────────────────────────────────────
 function saveLocal() {
