@@ -1025,6 +1025,11 @@ async function loadUserData() {
   if (profile) {
     state.profile = profile;
     if (profile.customSchedule) state.customSchedule = profile.customSchedule;
+    // Restore Gemini API key from Firebase so it works on any device without re-entry
+    if (profile.apiKey && !state.apiKey) {
+      state.apiKey = profile.apiKey;
+      saveLocal();
+    }
   }
 
   const weightSnap = await getDocs(query(collection(db, `${base}/weights`), orderBy('date')));
@@ -1069,6 +1074,10 @@ async function saveProfile() {
 // ── AUTH ─────────────────────────────────────────────────────
 async function handleUserSignIn(user) {
   const loading = document.getElementById('loadingScreen');
+  // Hide auth screen immediately and show loader so user gets feedback
+  document.getElementById('authScreen').style.display = 'none';
+  loading.style.display = 'flex';
+  loading.classList.remove('hidden');
   state.uid = user.uid;
   loadLocal();
   await loadUserData();
@@ -1949,7 +1958,7 @@ async function callGemini(messages, systemInstruction) {
 // ── SETTINGS ─────────────────────────────────────────────────
 window.saveSettings = async () => {
   const key = document.getElementById('settingsKey').value.trim();
-  if (key) { state.apiKey = key; if (key) history.replaceState(null,'','#k='+encodeURIComponent(key)); }
+  if (key) state.apiKey = key;
   state.profile = {
     ...state.profile,
     age: document.getElementById('settingsAge').value,
@@ -1958,6 +1967,7 @@ window.saveSettings = async () => {
     calorieTarget: document.getElementById('settingsCalories').value,
     proteinTarget: document.getElementById('settingsProtein').value,
     context: document.getElementById('settingsContext').value,
+    apiKey: state.apiKey,
   };
   if (state.uid) await fbSet(`users/${state.uid}/profile/main`, state.profile);
   saveLocal();
