@@ -1067,11 +1067,37 @@ async function saveProfile() {
 }
 
 // ── AUTH ─────────────────────────────────────────────────────
-window.signInWithGoogle = () => {
-  const provider = new GoogleAuthProvider();
-  signInWithPopup(auth, provider)
-    .then(result => { /* onAuthStateChanged handles the rest */ })
-    .catch(err => alert('Sign in error: ' + err.message));
+async function handleUserSignIn(user) {
+  const loading = document.getElementById('loadingScreen');
+  state.uid = user.uid;
+  loadLocal();
+  await loadUserData();
+
+  const avatar = document.getElementById('userAvatar');
+  if (user.photoURL) {
+    avatar.innerHTML = `<img src="${user.photoURL}">`;
+  } else {
+    avatar.textContent = user.displayName?.[0] || user.email?.[0] || '?';
+  }
+
+  loading.classList.add('hidden');
+  setTimeout(() => loading.style.display = 'none', 300);
+
+  if (!state.profile.age) {
+    document.getElementById('setupScreen').style.display = 'block';
+  } else {
+    launchApp();
+  }
+}
+
+window.signInWithGoogle = async () => {
+  try {
+    const provider = new GoogleAuthProvider();
+    const result = await signInWithPopup(auth, provider);
+    await handleUserSignIn(result.user);
+  } catch(err) {
+    alert('Sign in error: ' + err.message);
+  }
 };
 
 window.continueAnonymously = async () => {
@@ -1094,25 +1120,7 @@ onAuthStateChanged(auth, async (user) => {
   const loading = document.getElementById('loadingScreen');
 
   if (user) {
-    state.uid = user.uid;
-    loadLocal();
-    await loadUserData();
-
-    const avatar = document.getElementById('userAvatar');
-    if (user.photoURL) {
-      avatar.innerHTML = `<img src="${user.photoURL}">`;
-    } else {
-      avatar.textContent = user.displayName?.[0] || user.email?.[0] || '?';
-    }
-
-    loading.classList.add('hidden');
-    setTimeout(() => loading.style.display = 'none', 300);
-
-    if (!state.profile.age) {
-      document.getElementById('setupScreen').style.display = 'block';
-    } else {
-      launchApp();
-    }
+    await handleUserSignIn(user);
   } else {
     loadLocal();
     loading.classList.add('hidden');
