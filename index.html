@@ -1117,15 +1117,30 @@ async function saveProfile() {
 }
 
 // ── AUTH ─────────────────────────────────────────────────────
+// Guard against double-call: signInWithPopup resolves → handleUserSignIn
+// AND onAuthStateChanged also fires for the same sign-in event.
+let appLaunched = false;
+
 async function handleUserSignIn(user) {
+  if (appLaunched) return;
+  appLaunched = true;
+
   const loading = document.getElementById('loadingScreen');
   // Hide auth screen immediately and show loader so user gets feedback
   document.getElementById('authScreen').style.display = 'none';
   loading.style.display = 'flex';
   loading.classList.remove('hidden');
+
   state.uid = user.uid;
   loadLocal();
+
+  // Await full profile load from Firestore — this sets state.apiKey
+  // from profile.apiKey before launchApp() or any Gemini calls run.
   await loadUserData();
+
+  console.log('[FitCoach] handleUserSignIn: uid=', state.uid,
+    '| apiKey set=', !!state.apiKey,
+    '| profile.age=', state.profile.age);
 
   const avatar = document.getElementById('userAvatar');
   if (user.photoURL) {
@@ -1164,6 +1179,7 @@ window.continueAnonymously = async () => {
 
 window.signOut = async () => {
   try {
+    appLaunched = false;
     await fbSignOut(auth);
     localStorage.removeItem('fc_local');
     location.reload();
@@ -1807,6 +1823,10 @@ function setBriefingTime() {
 
 async function loadDailyBriefing() {
   const content = document.getElementById('briefingContent');
+  if (!state.apiKey) {
+    content.innerHTML = '<div style="color:var(--muted);font-size:13px">Add your Gemini API key in ⚙️ Settings to enable AI coaching.</div>';
+    return;
+  }
   content.innerHTML = '<div style="color:var(--muted);font-size:13px"><span class="spinner"></span> Getting your briefing...</div>';
 
   const today = todayStr();
