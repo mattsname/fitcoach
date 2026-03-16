@@ -478,6 +478,46 @@ textarea { resize: none; }
 .macro-box.carbs .macro-val { color: #5ab4ff; }
 .macro-box.fat .macro-val { color: #ffd04a; }
 
+/* ── WEEKLY NUTRITION ── */
+.week-day-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 0; border-bottom: 1px solid var(--border);
+}
+.week-day-row:last-child { border-bottom: none; }
+.week-day-name {
+  font-size: 11px; font-weight: 700; color: var(--muted);
+  width: 28px; flex-shrink: 0; letter-spacing: 0.5px; text-transform: uppercase;
+}
+.week-day-name.today { color: var(--orange); }
+.week-cal-bar-wrap { flex: 1; min-width: 0; }
+.week-cal-bar { height: 5px; background: var(--surface3); border-radius: 3px; overflow: hidden; margin-bottom: 3px; }
+.week-cal-bar-fill { height: 100%; border-radius: 3px; background: var(--orange); transition: width 0.4s; }
+.week-cal-bar-fill.over { background: var(--red); }
+.week-cal-nums { font-size: 11px; color: var(--muted); white-space: nowrap; }
+.week-delta {
+  font-size: 11px; font-weight: 700; padding: 2px 7px;
+  border-radius: 10px; flex-shrink: 0; min-width: 52px; text-align: right;
+}
+.week-delta.deficit { color: var(--green); }
+.week-delta.surplus { color: var(--red); }
+.week-delta.nodata { color: var(--muted2); }
+.week-summary {
+  display: flex; gap: 8px; margin-top: 12px; padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+.week-summary-box {
+  flex: 1; background: var(--surface2); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: 8px; text-align: center;
+}
+.week-summary-val {
+  font-family: 'Barlow Condensed', sans-serif; font-size: 20px;
+  font-weight: 700; line-height: 1;
+}
+.week-summary-lbl {
+  font-size: 10px; color: var(--muted); letter-spacing: 1px;
+  text-transform: uppercase; margin-top: 3px;
+}
+
 /* ── PROGRESS PANEL ── */
 .stat-row { display: flex; gap: 8px; margin-bottom: 12px; }
 .stat-box {
@@ -825,6 +865,11 @@ input[type="file"] { display: none; }
       <div class="section-sep">Today's Food Log</div>
       <div id="foodLogList"></div>
       <div id="emptyFood" style="text-align:center;color:var(--muted);font-size:13px;padding:16px 0">No food logged today</div>
+
+      <div class="section-sep">This Week</div>
+      <div class="card">
+        <div id="weeklyNutritionList"><div style="color:var(--muted);font-size:13px;text-align:center;padding:8px 0">Loading...</div></div>
+      </div>
 
     </div>
 
@@ -1187,6 +1232,7 @@ function launchApp() {
   setBriefingTime();
   loadDailyBriefing();
   addWelcomeMessage();
+  loadWeekFood().then(() => renderWeeklyNutrition());
 }
 
 // ── WEEK STRIP ───────────────────────────────────────────────
@@ -1557,6 +1603,7 @@ window.analyseFood = async () => {
     clearFoodPhoto();
     renderFoodLog();
     renderNutrition();
+    renderWeeklyNutrition();
     showToast('✅ ' + data.comment.slice(0,50));
   } catch(e) {
     showToast('❌ Could not analyse food');
@@ -1600,7 +1647,100 @@ window.removeFood = async (idx) => {
   saveLocal();
   renderFoodLog();
   renderNutrition();
+  renderWeeklyNutrition();
 };
+
+// ── WEEKLY NUTRITION ─────────────────────────────────────────
+async function loadWeekFood() {
+  if (!state.uid) return;
+  const today = new Date();
+  const fetches = [];
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date(today);
+    d.setDate(d.getDate() - i);
+    const dateStr = d.toISOString().split('T')[0];
+    if (!state.foodLog[dateStr]) {
+      fetches.push(
+        fbGet(`users/${state.uid}/food/${dateStr}`).then(food => {
+          state.foodLog[dateStr] = (food && food.items) ? food.items : [];
+        })
+      );
+    }
+  }
+  await Promise.all(fetches);
+}
+
+function renderWeeklyNutrition() {
+  const container = document.getElementById('weeklyNutritionList');
+  if (!container) return;
+  const calTarget = parseInt(state.profile.calorieTarget) || 2200;
+  const today = new Date();
+  const todayDateStr = todayStr();
+  const DAY_SHORT = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+
+  let totalCals = 0, loggedDays = 0, totalDeficit = 0;
+  const days = [];
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date(today);
+    d.setDate(d.getDate() - i);
+    const dateStr = d.toISOString().split('T')[0];
+    const items = state.foodLog[dateStr] || [];
+    const cals = Math.round(items.reduce((s, f) => s + (f.calories || 0), 0));
+    const isToday = dateStr === todayDateStr;
+    days.push({ dateStr, dayName: DAY_SHORT[d.getDay()], cals, isToday });
+    if (cals > 0) { totalCals += cals; loggedDays++; }
+    totalDeficit += calTarget - cals;
+  }
+
+  const avgCals = loggedDays > 0 ? Math.round(totalCals / loggedDays) : 0;
+
+  // Weight change over the week
+  const weekStart = days[0].dateStr;
+  const weekWeights = state.weightLog.filter(e => e.date >= weekStart);
+  let weightChange = null;
+  if (weekWeights.length >= 2) {
+    weightChange = (weekWeights[weekWeights.length - 1].weight - weekWeights[0].weight).toFixed(1);
+  }
+
+  const rowsHtml = days.map(({ dayName, cals, isToday }) => {
+    const hasData = cals > 0;
+    const pct = hasData ? Math.min(100, Math.round(cals / calTarget * 100)) : 0;
+    const over = cals > calTarget;
+    const delta = calTarget - cals;
+    const deltaLabel = !hasData ? '—' : (over ? '+' + Math.abs(delta) : '−' + Math.abs(delta));
+    const deltaClass = !hasData ? 'nodata' : (over ? 'surplus' : 'deficit');
+    return `<div class="week-day-row">
+      <div class="week-day-name${isToday ? ' today' : ''}">${dayName}</div>
+      <div class="week-cal-bar-wrap">
+        <div class="week-cal-bar"><div class="week-cal-bar-fill${over ? ' over' : ''}" style="width:${pct}%"></div></div>
+        <div class="week-cal-nums">${hasData ? cals + ' / ' + calTarget + ' kcal' : 'no data'}</div>
+      </div>
+      <div class="week-delta ${deltaClass}">${deltaLabel}</div>
+    </div>`;
+  }).join('');
+
+  const deficitColor = totalDeficit >= 0 ? 'var(--green)' : 'var(--red)';
+  const deficitLabel = totalDeficit >= 0 ? '−' + totalDeficit : '+' + Math.abs(totalDeficit);
+  const weightColor = weightChange !== null ? (parseFloat(weightChange) <= 0 ? 'var(--green)' : 'var(--red)') : 'var(--muted)';
+  const weightLabel = weightChange !== null ? (parseFloat(weightChange) <= 0 ? weightChange : '+' + weightChange) + ' lbs' : '—';
+
+  const summaryHtml = `<div class="week-summary">
+    <div class="week-summary-box">
+      <div class="week-summary-val">${avgCals || '—'}</div>
+      <div class="week-summary-lbl">Avg kcal</div>
+    </div>
+    <div class="week-summary-box">
+      <div class="week-summary-val" style="color:${deficitColor}">${deficitLabel}</div>
+      <div class="week-summary-lbl">7-day deficit</div>
+    </div>
+    <div class="week-summary-box">
+      <div class="week-summary-val" style="color:${weightColor}">${weightLabel}</div>
+      <div class="week-summary-lbl">Weight Δ</div>
+    </div>
+  </div>`;
+
+  container.innerHTML = rowsHtml + summaryHtml;
+}
 
 function renderNutrition() {
   const today = todayStr();
@@ -2077,6 +2217,9 @@ window.switchTab = (name) => {
   if(name==='progress') {
     if(weightChartBigInst) { weightChartBigInst.destroy(); weightChartBigInst = null; }
     setTimeout(() => renderBigChart(), 50);
+  }
+  if(name==='log') {
+    loadWeekFood().then(() => renderWeeklyNutrition());
   }
 };
 
