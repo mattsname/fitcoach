@@ -1956,7 +1956,7 @@ window.sendChat = async () => {
 
     // Run memory extraction in background every 2 model messages
     const modelMsgCount = state.chatHistory.filter(m => m.role === 'model').length;
-    if (modelMsgCount % 2 === 0) {
+    if (modelMsgCount > 0 && modelMsgCount % 2 === 0) {
       updateCoachMemory();
     }
   } catch(e) {
@@ -1968,6 +1968,7 @@ window.sendChat = async () => {
 
 // ── COACH MEMORY ─────────────────────────────────────────────
 async function updateCoachMemory() {
+  console.log('[FitCoach] updateCoachMemory running, history length:', state.chatHistory.length);
   if (!state.apiKey || state.chatHistory.length < 2) return;
   const recentMessages = state.chatHistory.slice(-12)
     .map(m => (m.role === 'user' ? 'Matt: ' : 'Coach: ') + (m.parts?.[0]?.text || ''))
@@ -1993,7 +1994,7 @@ ${recentMessages}`;
     }
     showToast('🧠 Memory updated');
   } catch(e) {
-    console.warn('[FitCoach] Memory update failed:', e.message);
+    console.error('[FitCoach] memory update failed:', e);
   }
 }
 
