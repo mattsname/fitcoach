@@ -994,8 +994,8 @@ let state = {
   progressPhotos: {},
   currentWorkout: null,
   workoutHistory: {},
-  // User-overridable schedule: { 1: 'push', 3: 'pull', 5: 'push', 2: 'swim' } etc.
   customSchedule: {},
+  coachMemory: [],
 };
 
 let weightChartInst = null, weightChartBigInst = null;
@@ -1070,6 +1070,7 @@ async function loadUserData() {
   if (profile) {
     state.profile = profile;
     if (profile.customSchedule) state.customSchedule = profile.customSchedule;
+    if (profile.coachMemory) state.coachMemory = profile.coachMemory;
     // Restore Gemini API key from Firebase so it works on any device without re-entry
     if (profile.apiKey && !state.apiKey) {
       state.apiKey = profile.apiKey;
@@ -1952,12 +1953,49 @@ window.sendChat = async () => {
     if (isWorkoutRelated) {
       await applyCoachWorkoutChanges(text, reply);
     }
+
+    // Run memory extraction in background every 3 model messages
+    const modelMsgCount = state.chatHistory.filter(m => m.role === 'model').length;
+    if (modelMsgCount % 3 === 0) {
+      updateCoachMemory();
+    }
   } catch(e) {
     hideTyping();
     addMsgToUI('ai', '❌ Error: ' + e.message);
   }
   btn.disabled = false;
 };
+
+// ── COACH MEMORY ─────────────────────────────────────────────
+async function updateCoachMemory() {
+  if (!state.apiKey || state.chatHistory.length < 2) return;
+  const recentMessages = state.chatHistory.slice(-12)
+    .map(m => (m.role === 'user' ? 'Matt: ' : 'Coach: ') + (m.parts?.[0]?.text || ''))
+    .join('\n');
+  const memPrompt = `Based on this conversation extract any fitness rules, preferences, injuries, goals or coaching decisions that should be remembered long term. Return ONLY a JSON array of strings, each a single clear memory under 20 words. Example: ["Always starts workouts with 5 min treadmill warmup", "Has left shoulder issue, avoid overhead press"]. If nothing new to remember return [].
+
+CONVERSATION:
+${recentMessages}`;
+  try {
+    const raw = await callGemini([{role:'user',parts:[{text:memPrompt}]}], 'You extract and summarize coaching memories. Return only valid JSON arrays.');
+    const newMemories = JSON.parse(raw.replace(/```json|```/g,'').trim());
+    if (!Array.isArray(newMemories) || newMemories.length === 0) return;
+    // Merge, deduplicate (case-insensitive prefix match), cap at 30
+    const merged = [...state.coachMemory];
+    for (const mem of newMemories) {
+      const key = mem.toLowerCase().slice(0, 30);
+      if (!merged.some(m => m.toLowerCase().slice(0, 30) === key)) merged.push(mem);
+    }
+    state.coachMemory = merged.slice(-30);
+    // Save to Firebase alongside profile
+    if (state.uid) {
+      await fbSet(`users/${state.uid}/profile/main`, { ...state.profile, coachMemory: state.coachMemory, apiKey: state.apiKey });
+    }
+    showToast('🧠 Memory updated');
+  } catch(e) {
+    console.warn('[FitCoach] Memory update failed:', e.message);
+  }
+}
 
 // Direct regex schedule parser — instant, no extra API call
 function detectAndApplyScheduleChanges(userMsg) {
@@ -2073,7 +2111,11 @@ function buildSystemPrompt() {
 
   const currentExercises = state.currentWorkout ? state.currentWorkout.map(e => e.name).join(', ') : 'none generated yet';
 
-  return `You are a concise, direct personal fitness coach and nutritionist. Keep responses SHORT — one paragraph max then bullet points. No fluff, no repetition. Be specific and actionable.
+  const memoryBlock = state.coachMemory.length
+    ? `\nPERSISTENT COACHING MEMORY (always respect these):\n${state.coachMemory.join('\n')}`
+    : '';
+
+  return `You are Matt's personal fitness coach. Respond conversationally like a knowledgeable friend - direct, warm, and concise. 2-4 sentences max for most responses. Never use bullet points unless listing exercises or meals. No headers. No "Great question!" or filler phrases. Just answer directly and naturally. If Matt asks for a workout change, confirm it in one sentence and act on it. Be encouraging but not cheesy.
 
 IMPORTANT: When the user asks to change exercises, swap movements, adjust their schedule, or modify their workout in any way — acknowledge the change AND know that the app will automatically update the workout list based on your conversation. So make your recommendation clearly.
 
@@ -2089,7 +2131,7 @@ TODAY (${today}, ${sched[dow]?.label} day):
 - Foods eaten: ${food.map(f=>f.name).join(', ')||'nothing yet'}
 - Current workout exercises: ${currentExercises}
 
-SCHEDULE: Mon/Wed/Fri = Gym (alternating Push/Pull each week), Tue or Thu = Swim, other days = Rest.`;
+SCHEDULE: Mon/Wed/Fri = Gym (alternating Push/Pull each week), Tue or Thu = Swim, other days = Rest.${memoryBlock}`;
 }
 
 // ── GEMINI API ───────────────────────────────────────────────
