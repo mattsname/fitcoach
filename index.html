@@ -1954,7 +1954,8 @@ window.sendChat = async () => {
     const workoutTriggers = /swap|replace|change|switch|add|remove|instead|modify|update|adjust|restructure|incorporate|leg|push|pull|schedule/i;
     const isWorkoutRelated = workoutTriggers.test(text);
     if (isWorkoutRelated) {
-      await applyCoachWorkoutChanges(text, reply);
+      try { await applyCoachWorkoutChanges(text, reply); }
+      catch(e) { console.warn('[FitCoach] applyCoachWorkoutChanges failed:', e); }
     }
 
     // Run memory extraction in background every 2 coach replies
@@ -2046,9 +2047,9 @@ async function applyCoachWorkoutChanges(userMsg, coachReply) {
 
   // STEP 2: Re-generate current day workout with updated schedule
   const sched = getSchedule();
-  const dow = selectedDay !== null ? selectedDay : new Date().getDay();
+  const dow = (selectedDay !== null && selectedDay !== undefined) ? selectedDay : new Date().getDay();
   const s = sched[dow];
-  if (s.type === 'rest' || s.type === 'swim') return;
+  if (!s || s.type === 'rest' || s.type === 'swim') return;
 
   const workoutPrompt = buildSystemPrompt() + `
 
