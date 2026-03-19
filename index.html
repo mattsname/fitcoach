@@ -2300,12 +2300,6 @@ function formatText(text) {
   return text.replace(/\*\*(.*?)\*\*/g,'<strong>$1</strong>').replace(/\n/g,'<br>');
 }
 
-window.showToast = (msg) => {
-  const t = document.getElementById('toast');
-  t.textContent = msg; t.classList.add('show');
-  setTimeout(()=>t.classList.remove('show'),3000);
-};
-
 // Make saveProfile global
 window.saveProfile = saveProfile;
 
