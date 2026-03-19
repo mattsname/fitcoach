@@ -1954,9 +1954,9 @@ window.sendChat = async () => {
       await applyCoachWorkoutChanges(text, reply);
     }
 
-    // Run memory extraction in background every 3 model messages
+    // Run memory extraction in background every 2 model messages
     const modelMsgCount = state.chatHistory.filter(m => m.role === 'model').length;
-    if (modelMsgCount % 3 === 0) {
+    if (modelMsgCount % 2 === 0) {
       updateCoachMemory();
     }
   } catch(e) {
