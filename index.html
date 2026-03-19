@@ -998,6 +998,7 @@ let state = {
   workoutHistory: {},
   customSchedule: {},
   coachMemory: [],
+  coachReplyCount: 0,
 };
 
 let weightChartInst = null, weightChartBigInst = null;
@@ -1956,9 +1957,10 @@ window.sendChat = async () => {
       await applyCoachWorkoutChanges(text, reply);
     }
 
-    // Run memory extraction in background every 2 model messages
-    const modelMsgCount = state.chatHistory.filter(m => m.role === 'model').length;
-    if (modelMsgCount > 0 && modelMsgCount % 2 === 0) {
+    // Run memory extraction in background every 2 coach replies
+    state.coachReplyCount++;
+    console.log('[FitCoach] coachReplyCount:', state.coachReplyCount);
+    if (state.coachReplyCount % 2 === 0) {
       updateCoachMemory();
     }
   } catch(e) {
@@ -1981,8 +1983,12 @@ CONVERSATION:
 ${recentMessages}`;
   try {
     const raw = await callGemini([{role:'user',parts:[{text:memPrompt}]}], 'You extract and summarize coaching memories. Return only valid JSON arrays.');
-    const newMemories = JSON.parse(raw.replace(/```json|```/g,'').trim());
-    if (!Array.isArray(newMemories) || newMemories.length === 0) return;
+    console.log('[FitCoach] memory raw response:', raw.slice(0, 200));
+    const newMemories = JSON.parse(raw.replace(/```json\n?|\n?```/g, '').trim());
+    if (!Array.isArray(newMemories) || newMemories.length === 0) {
+      console.log('[FitCoach] memory: no new memories extracted');
+      return;
+    }
     // Merge, deduplicate (case-insensitive prefix match), cap at 30
     const merged = [...state.coachMemory];
     for (const mem of newMemories) {
