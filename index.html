@@ -773,11 +773,23 @@ input[type="file"] { display: none; }
         <div id="briefingContent" style="max-height:180px;overflow-y:auto;-webkit-overflow-scrolling:touch">
           <div style="color:var(--muted);font-size:13px">Loading your daily briefing...</div>
         </div>
-        <div class="briefing-input-row">
-          <textarea id="briefingInput" placeholder="Tell your coach something... 'My wrist hurts' or 'I had a cheat day'" rows="1" oninput="this.style.height='auto';this.style.height=this.scrollHeight+'px'" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendBriefing();}"></textarea>
-          <button class="btn btn-primary btn-sm" onclick="sendBriefing()" id="briefingBtn">Ask</button>
-        </div>
       </div>
+
+      <div class="quick-chips">
+        <div class="chip" onclick="quickAsk('What should I focus on today?')">🎯 Today's focus</div>
+        <div class="chip" onclick="quickAsk('What should I eat today to hit my goals?')">🥗 What to eat</div>
+        <div class="chip" onclick="quickAsk('Motivate me!')">🔥 Motivate me</div>
+        <div class="chip" onclick="sendContextUpdate()">📋 Send today's data</div>
+      </div>
+
+      <div id="today-chat-history" style="max-height:280px;overflow-y:auto;background:#111;border-radius:10px;border:1px solid #1a1a1a;padding:10px;display:flex;flex-direction:column;gap:8px;margin:10px 0;"></div>
+
+      <div style="display:flex;gap:8px;margin-top:6px;">
+        <textarea id="todayChatInput" placeholder="Ask your coach..." rows="1" style="flex:1;background:#111;border:1px solid #333;border-radius:8px;color:#eee;padding:8px 12px;font-size:14px;resize:none;font-family:'Barlow Condensed',sans-serif;" oninput="this.style.height='auto';this.style.height=this.scrollHeight+'px'" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendTodayChat();}"></textarea>
+        <button onclick="sendTodayChat()" style="background:#ff5c1a;border:none;border-radius:8px;color:#000;font-weight:700;padding:8px 16px;font-family:'Barlow Condensed',sans-serif;font-size:16px;cursor:pointer;">➤</button>
+      </div>
+
+      <div style="height:1px;background:#1a1a1a;margin:12px 0;"></div>
 
       <div class="card">
         <div class="week-strip" id="weekStrip"></div>
@@ -792,6 +804,8 @@ input[type="file"] { display: none; }
           <div style="color:var(--muted);font-size:13px;padding:8px 0">Tap "Generate Plan" to get today's workout from your coach.</div>
         </div>
       </div>
+
+      <div style="height:1px;background:#1a1a1a;margin:12px 0;"></div>
 
       <div class="section-sep">Nutrition Summary</div>
       <div class="card">
@@ -1330,7 +1344,11 @@ window.generateWorkout = async () => {
     .map(m => (m.role === 'user' ? 'User: ' : 'Coach: ') + (m.parts?.[0]?.text || ''))
     .join('\n');
 
-  const prompt = buildSystemPrompt() + `\n\nGenerate a specific ${s.label} workout for today in JSON format only. No markdown, no preamble.
+  const memoryContext = state.coachMemory && state.coachMemory.length > 0
+    ? '\n\nCOACH MEMORY - User preferences to respect:\n' + state.coachMemory.map(m => '- ' + m).join('\n')
+    : '';
+
+  const prompt = buildSystemPrompt() + memoryContext + `\n\nGenerate a specific ${s.label} workout for today in JSON format only. No markdown, no preamble.
 Context: calories eaten today: ${totalCals}kcal (target: ${state.profile.calorieTarget}), protein: ${Math.round(totalProtein)}g, weight: ${latestWeight ? latestWeight.weight+'lbs' : 'unknown'}.
 ${recentCoachContext ? `\nRECENT COACH CONVERSATION (apply any exercise changes discussed):\n${recentCoachContext}\n` : ''}
 IMPORTANT: If the recent conversation requested specific exercise swaps, additions, or removals — apply them now.
@@ -1850,6 +1868,7 @@ Format: one short paragraph (2-3 sentences max), then 2-3 bullet action points. 
   try {
     const res = await callGemini([{role:'user',parts:[{text:'Daily briefing'}]}], prompt);
     content.innerHTML = formatBriefing(res);
+    renderTodayChat();
   } catch(e) {
     content.innerHTML = '<div style="color:var(--muted);font-size:13px">Could not load briefing — check your API key in Settings.</div>';
   }
@@ -1911,7 +1930,37 @@ function addMsgToUI(role, text) {
   div.innerHTML = role === 'ai' ? formatBriefing(text) : text;
   msgs.appendChild(div);
   msgs.scrollTop = msgs.scrollHeight;
+  renderTodayChat();
 }
+
+function renderTodayChat() {
+  const container = document.getElementById('today-chat-history');
+  if (!container) return;
+  container.innerHTML = '';
+  for (const msg of state.chatHistory) {
+    const text = msg.parts?.[0]?.text;
+    if (!text) continue;
+    const div = document.createElement('div');
+    if (msg.role === 'user') {
+      div.style.cssText = 'background:#ff5c1a;color:#000;align-self:flex-end;border-radius:12px 12px 4px 12px;padding:8px 12px;max-width:80%;font-size:14px;';
+    } else {
+      div.style.cssText = 'background:#1a1a1a;color:#eee;align-self:flex-start;border-radius:12px 12px 12px 4px;padding:8px 12px;max-width:80%;font-size:14px;';
+    }
+    div.innerHTML = msg.role === 'model' ? formatBriefing(text) : text;
+    container.appendChild(div);
+  }
+  container.scrollTop = container.scrollHeight;
+}
+
+window.sendTodayChat = () => {
+  const todayInput = document.getElementById('todayChatInput');
+  const chatInput = document.getElementById('chatInput');
+  if (!todayInput.value.trim()) return;
+  chatInput.value = todayInput.value;
+  todayInput.value = '';
+  todayInput.style.height = 'auto';
+  sendChat();
+};
 
 function showTyping() {
   const msgs = document.getElementById('chatMessages');
@@ -1969,6 +2018,7 @@ window.sendChat = async () => {
     addMsgToUI('ai', '❌ Error: ' + e.message);
   }
   btn.disabled = false;
+  renderTodayChat();
 };
 
 // ── COACH MEMORY ─────────────────────────────────────────────
@@ -2292,6 +2342,9 @@ window.switchTab = (name) => {
   }
   if(name==='log') {
     loadWeekFood().then(() => renderWeeklyNutrition());
+  }
+  if(name==='today') {
+    renderTodayChat();
   }
 };
 
