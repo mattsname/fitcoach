@@ -1025,6 +1025,7 @@ let state = {
   customSchedule: {},
   coachMemory: [],
   coachReplyCount: 0,
+  exerciseHistory: {},
 };
 
 let weightChartInst = null, weightChartBigInst = null;
@@ -1120,6 +1121,11 @@ async function loadUserData() {
   } else {
     console.log('[FitCoach] loadUserData: no food items found in Firestore for today');
   }
+
+  const exSnap = await getDocs(collection(db, `${base}/exerciseHistory`));
+  state.exerciseHistory = {};
+  exSnap.forEach(d => { state.exerciseHistory[d.id] = d.data(); });
+  console.log('[FitCoach] loadUserData: loaded exerciseHistory for', exSnap.size, 'exercises');
 }
 
 async function saveProfile() {
@@ -1375,6 +1381,12 @@ Include 5-7 exercises appropriate for ${s.label} day. suggestedWeight should be 
     const res = await callGemini([{role:'user',parts:[{text:'Generate my workout'}]}], prompt);
     const clean = res.replace(/```json|```/g,'').trim();
     const data = JSON.parse(clean);
+    // Auto-populate weights from exercise history
+    data.exercises = data.exercises.map(ex => {
+      const lastSession = state.exerciseHistory[ex.name]?.sessions?.slice(-1)[0];
+      if (lastSession?.sets?.length > 0) ex.suggestedWeight = lastSession.sets[0].weight;
+      return ex;
+    });
     state.currentWorkout = data.exercises;
     renderExerciseList(data.exercises);
     if (state.uid) await fbSet(`users/${state.uid}/workouts/${today}`, { exercises: data.exercises, type: s.label, date: today });
@@ -1394,42 +1406,75 @@ function renderExerciseList(exercises) {
     return;
   }
 
-  list.innerHTML = exercises.map((ex, ei) => {
-    const sets = Array.from({length: ex.sets}, (_,si) => `
+  const cards = exercises.map((ex, ei) => {
+    const history = state.exerciseHistory[ex.name];
+    const lastSession = history?.sessions?.slice(-1)[0];
+
+    let subtitleHTML;
+    if (lastSession) {
+      const d = new Date(lastSession.date + 'T12:00:00');
+      const dateLabel = d.toLocaleDateString('en-US', { month:'short', day:'numeric' });
+      const weights = lastSession.sets.map(s => s.weight).join('/');
+      subtitleHTML = `<div style="font-size:11px;color:var(--muted);margin-top:2px">Last: ${dateLabel} · ${weights} lbs</div>`;
+    } else {
+      subtitleHTML = `<div class="exercise-sets">${ex.sets} sets · ${ex.repsRange || '8-12'} reps · ${ex.suggestedWeight ? ex.suggestedWeight + ' ' + (ex.unit||'lbs') : 'bodyweight'}</div>`;
+    }
+
+    const numSets = ex.sets || 3;
+    const sets = Array.from({length: numSets}, (_,si) => {
+      const lastW = lastSession?.sets?.[si]?.weight ?? ex.suggestedWeight ?? '';
+      const lastR = lastSession?.sets?.[si]?.reps ?? (parseInt(ex.repsRange?.split('-')[0]) || 10);
+      return `
       <div class="set-row">
         <div class="set-label">Set ${si+1}</div>
         <div class="set-input-group">
           <div class="set-inputs">
             <div>
               <div class="set-input-label">Reps</div>
-              <input class="set-input" type="number" value="" placeholder="${ex.repsRange?.split('-')[0] || 10}" data-ex="${ei}" data-set="${si}" data-type="reps" onchange="saveSetData(${ei},${si})">
+              <input class="set-input" type="number" value="${lastR}" placeholder="${ex.repsRange?.split('-')[0]||10}" data-ex="${ei}" data-set="${si}" data-type="reps" onchange="saveSetData(${ei},${si})">
               <div class="set-input-unit">reps</div>
             </div>
             <div>
               <div class="set-input-label">Weight</div>
-              <input class="set-input" type="number" value="${ex.suggestedWeight || ''}" placeholder="${ex.suggestedWeight || 0}" data-ex="${ei}" data-set="${si}" data-type="weight" onchange="saveSetData(${ei},${si})">
-              <div class="set-input-unit">${ex.unit || 'lbs'}</div>
+              <input class="set-input" type="number" value="${lastW}" placeholder="${lastW||0}" data-ex="${ei}" data-set="${si}" data-type="weight" onchange="saveSetData(${ei},${si})">
+              <div class="set-input-unit">${ex.unit||'lbs'}</div>
             </div>
           </div>
         </div>
         <button class="set-done-btn" data-ex="${ei}" data-set="${si}" onclick="toggleSetDone(this)">✓</button>
-      </div>`).join('');
+      </div>`;
+    }).join('');
 
     return `<div class="exercise-row" id="ex-${ei}">
       <div class="exercise-header" onclick="toggleExercise(${ei})">
         <div class="exercise-num">${ei+1}</div>
         <div class="exercise-info">
           <div class="exercise-name">${ex.name}</div>
-          <div class="exercise-sets">${ex.sets} sets · ${ex.repsRange || '8-12'} reps · ${ex.suggestedWeight ? ex.suggestedWeight + ' ' + (ex.unit||'lbs') : 'bodyweight'}</div>
+          ${subtitleHTML}
         </div>
         <div class="exercise-chevron">▼</div>
       </div>
       <div class="exercise-detail">
         ${ex.notes ? `<div style="font-size:12px;color:var(--muted);padding:8px 0 10px;border-bottom:1px solid var(--border);margin-bottom:8px">💡 ${ex.notes}</div>` : ''}
         ${sets}
+        <button class="add-set-btn" onclick="addSet(${ei})" style="margin-top:8px;background:transparent;border:1px solid #333;border-radius:6px;color:var(--muted);font-size:12px;padding:5px 12px;cursor:pointer;font-family:'Barlow Condensed',sans-serif;">+ Add Set</button>
       </div>
     </div>`;
   }).join('');
+
+  const addExerciseUI = `
+    <div style="margin-top:12px;display:flex;gap:8px;align-items:center;">
+      <select id="addExerciseSelect" style="flex:1;background:#111;border:1px solid #333;border-radius:8px;color:#eee;padding:8px;font-size:14px;font-family:'Barlow Condensed',sans-serif;">
+        <option value="">— Add exercise —</option>
+        ${APPROVED_EXERCISES.map(e => `<option value="${e}">${e}</option>`).join('')}
+      </select>
+      <button onclick="addExercise()" style="background:#ff5c1a;border:none;border-radius:8px;color:#000;font-weight:700;padding:8px 14px;font-family:'Barlow Condensed',sans-serif;font-size:14px;cursor:pointer;">Add</button>
+    </div>`;
+
+  const saveBtn = `
+    <button onclick="saveWorkout()" style="width:100%;margin-top:14px;background:#3dffc0;border:none;border-radius:10px;color:#000;font-weight:800;font-size:16px;padding:13px;font-family:'Barlow Condensed',sans-serif;cursor:pointer;letter-spacing:0.5px;">💾 Save Workout</button>`;
+
+  list.innerHTML = cards + addExerciseUI + saveBtn;
 }
 
 window.toggleExercise = (idx) => {
@@ -1446,7 +1491,75 @@ window.toggleSetDone = (btn) => {
 };
 
 window.saveSetData = (exIdx, setIdx) => {
-  // Data saved inline in inputs, saved to Firebase on workout complete
+  // Data saved inline in inputs, saved to Firebase on saveWorkout()
+};
+
+window.addSet = (ei) => {
+  const detail = document.querySelector(`#ex-${ei} .exercise-detail`);
+  const si = detail.querySelectorAll('.set-row').length;
+  const ex = state.currentWorkout[ei];
+  const lastWeightInp = detail.querySelector(`[data-ex="${ei}"][data-type="weight"]:last-of-type`);
+  const lastW = lastWeightInp?.value || ex.suggestedWeight || '';
+  const div = document.createElement('div');
+  div.className = 'set-row';
+  div.innerHTML = `
+    <div class="set-label">Set ${si+1}</div>
+    <div class="set-input-group"><div class="set-inputs">
+      <div>
+        <div class="set-input-label">Reps</div>
+        <input class="set-input" type="number" value="" placeholder="${ex.repsRange?.split('-')[0]||10}" data-ex="${ei}" data-set="${si}" data-type="reps" onchange="saveSetData(${ei},${si})">
+        <div class="set-input-unit">reps</div>
+      </div>
+      <div>
+        <div class="set-input-label">Weight</div>
+        <input class="set-input" type="number" value="${lastW}" placeholder="${lastW||0}" data-ex="${ei}" data-set="${si}" data-type="weight" onchange="saveSetData(${ei},${si})">
+        <div class="set-input-unit">${ex.unit||'lbs'}</div>
+      </div>
+    </div></div>
+    <button class="set-done-btn" data-ex="${ei}" data-set="${si}" onclick="toggleSetDone(this)">✓</button>`;
+  detail.querySelector('.add-set-btn').before(div);
+};
+
+window.addExercise = () => {
+  const select = document.getElementById('addExerciseSelect');
+  const name = select.value;
+  if (!name) return;
+  if (!state.currentWorkout) state.currentWorkout = [];
+  const lastSession = state.exerciseHistory[name]?.sessions?.slice(-1)[0];
+  state.currentWorkout.push({
+    name, sets: 3, repsRange: '8-12',
+    suggestedWeight: lastSession?.sets?.[0]?.weight || 0,
+    unit: 'lbs', muscleGroup: '', notes: ''
+  });
+  select.value = '';
+  renderExerciseList(state.currentWorkout);
+};
+
+window.saveWorkout = async () => {
+  if (!state.currentWorkout || state.currentWorkout.length === 0) return;
+  if (!state.uid) { showToast('⚠️ Sign in to save'); return; }
+  const today = todayStr();
+  let saved = 0;
+  for (let ei = 0; ei < state.currentWorkout.length; ei++) {
+    const ex = state.currentWorkout[ei];
+    const weightInputs = document.querySelectorAll(`[data-ex="${ei}"][data-type="weight"]`);
+    const repInputs = document.querySelectorAll(`[data-ex="${ei}"][data-type="reps"]`);
+    const sets = [];
+    weightInputs.forEach((inp, si) => {
+      const weight = parseFloat(inp.value);
+      const reps = parseInt(repInputs[si]?.value);
+      if (!isNaN(weight) && weight > 0) sets.push({ set: si+1, weight, reps: isNaN(reps) ? 0 : reps });
+    });
+    if (sets.length === 0) continue;
+    const path = `users/${state.uid}/exerciseHistory/${ex.name}`;
+    const existing = await fbGet(path) || {};
+    const sessions = (existing.sessions || []).filter(s => s.date !== today);
+    sessions.push({ date: today, sets });
+    await fbSet(path, { sessions });
+    state.exerciseHistory[ex.name] = { sessions };
+    saved++;
+  }
+  showToast(saved > 0 ? `✅ Workout saved (${saved} exercises)` : '⚠️ Enter weights first');
 };
 
 // ── WEIGHT ───────────────────────────────────────────────────
