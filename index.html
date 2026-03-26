@@ -653,6 +653,22 @@ input[type="file"] { display: none; }
 #pb-banner.show { animation: pbPop 3.8s ease forwards; }
 #pb-banner .pb-title { font-size:22px; font-weight:900; color:#ff5c1a; font-family:'Barlow Condensed',sans-serif; letter-spacing:1px; }
 #pb-banner .pb-body { font-size:14px; color:#eee; margin-top:6px; font-family:'Barlow Condensed',sans-serif; line-height:1.4; }
+.cal-grid { display:grid; grid-template-columns:repeat(7,1fr); gap:3px; }
+.cal-day-header { text-align:center; font-size:10px; color:var(--muted2); padding:4px 0; font-weight:600; letter-spacing:1px; }
+.cal-day { background:#1a1a1a; border-radius:7px; padding:5px 2px 4px; min-height:44px; cursor:pointer; display:flex; flex-direction:column; align-items:center; border:1px solid transparent; transition:border-color 0.15s; }
+.cal-day:active { opacity:0.7; }
+.cal-day.empty { background:transparent; cursor:default; border:none; }
+.cal-day.today { border-color:#ff5c1a; }
+.cal-day.selected { background:#2a1205; border-color:#ff5c1a; }
+.cal-day-num { font-size:12px; font-weight:700; margin-bottom:3px; line-height:1; }
+.cal-day.today .cal-day-num { color:#ff5c1a; }
+.cal-day.selected .cal-day-num { color:#ff5c1a; }
+.cal-day.future .cal-day-num { color:var(--muted2); }
+.cal-dots { display:flex; gap:2px; justify-content:center; flex-wrap:wrap; min-height:7px; }
+.cal-dot { width:5px; height:5px; border-radius:50%; flex-shrink:0; }
+.cal-dot.workout { background:#ff5c1a; }
+.cal-dot.food { background:#3dffc0; }
+.cal-dot.weight { background:#4a9eff; }
 </style>
 </head>
 <body>
@@ -914,6 +930,34 @@ input[type="file"] { display: none; }
         <div style="position:relative;height:180px;width:100%">
           <canvas id="weightChartBig"></canvas>
         </div>
+      </div>
+
+      <div class="card" id="calendarCard">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+          <button class="btn btn-ghost btn-sm" onclick="shiftCalendar(-1)" style="padding:4px 10px;font-size:14px">◀</button>
+          <div id="calendarMonthLabel" style="font-weight:800;font-size:16px;font-family:'Barlow Condensed',sans-serif;letter-spacing:1px"></div>
+          <button class="btn btn-ghost btn-sm" onclick="shiftCalendar(1)" style="padding:4px 10px;font-size:14px">▶</button>
+        </div>
+        <div class="cal-grid" id="calendarGrid"></div>
+        <div style="display:flex;gap:10px;margin-top:10px;flex-wrap:wrap">
+          <div style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--muted)"><div class="cal-dot workout"></div> Workout</div>
+          <div style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--muted)"><div class="cal-dot food"></div> Food</div>
+          <div style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--muted)"><div class="cal-dot weight"></div> Weight</div>
+        </div>
+      </div>
+
+      <div class="card" id="calDayDetail" style="display:none">
+        <div id="calDayDetailContent"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-label">Exercise History</div>
+        <div style="display:flex;gap:8px;margin-bottom:10px">
+          <select id="exHistorySelect" style="flex:1;background:#111;border:1px solid #333;border-radius:8px;color:#eee;padding:8px;font-size:14px;font-family:'Barlow Condensed',sans-serif;" onchange="lookupExerciseHistory()">
+            <option value="">— Pick an exercise —</option>
+          </select>
+        </div>
+        <div id="exHistoryResult"></div>
       </div>
 
       <div class="card">
@@ -2551,6 +2595,9 @@ window.switchTab = (name) => {
   if(name==='progress') {
     if(weightChartBigInst) { weightChartBigInst.destroy(); weightChartBigInst = null; }
     setTimeout(() => renderBigChart(), 50);
+    calYear = new Date().getFullYear();
+    calMonth = new Date().getMonth();
+    renderCalendar();
   }
   if(name==='log') {
     loadWeekFood().then(() => renderWeeklyNutrition());
@@ -2558,6 +2605,200 @@ window.switchTab = (name) => {
   if(name==='today') {
     renderTodayChat();
   }
+};
+
+// ── PROGRESS CALENDAR ────────────────────────────────────────
+let calYear = new Date().getFullYear();
+let calMonth = new Date().getMonth();
+let calSelectedDate = null;
+
+window.shiftCalendar = (dir) => {
+  calMonth += dir;
+  if (calMonth < 0) { calMonth = 11; calYear--; }
+  if (calMonth > 11) { calMonth = 0; calYear++; }
+  renderCalendar();
+};
+
+function renderCalendar() {
+  const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  const DAY_HEADERS = ['Su','Mo','Tu','We','Th','Fr','Sa'];
+  const lbl = document.getElementById('calendarMonthLabel');
+  if (!lbl) return;
+  lbl.textContent = `${MONTH_NAMES[calMonth]} ${calYear}`;
+
+  const workoutDates = new Set();
+  Object.values(state.exerciseHistory).forEach(hist => {
+    (hist.sessions || []).forEach(s => workoutDates.add(s.date));
+  });
+  const weightDateSet = new Set(state.weightLog.map(e => e.date));
+  const today = todayStr();
+
+  const firstDow = new Date(calYear, calMonth, 1).getDay();
+  const daysInMonth = new Date(calYear, calMonth + 1, 0).getDate();
+
+  let html = DAY_HEADERS.map(d => `<div class="cal-day-header">${d}</div>`).join('');
+  for (let i = 0; i < firstDow; i++) html += `<div class="cal-day empty"></div>`;
+
+  for (let d = 1; d <= daysInMonth; d++) {
+    const ds = `${calYear}-${String(calMonth+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const isToday = ds === today;
+    const isSelected = ds === calSelectedDate;
+    const isFuture = ds > today;
+    const hasWorkout = workoutDates.has(ds);
+    const hasWeight = weightDateSet.has(ds);
+    const hasFood = !!(state.foodLog[ds] && state.foodLog[ds].length > 0);
+    const dots = [
+      hasWorkout ? '<div class="cal-dot workout"></div>' : '',
+      hasFood    ? '<div class="cal-dot food"></div>'    : '',
+      hasWeight  ? '<div class="cal-dot weight"></div>'  : '',
+    ].join('');
+    const cls = ['cal-day', isToday?'today':'', isSelected?'selected':'', isFuture?'future':''].filter(Boolean).join(' ');
+    html += `<div class="${cls}" onclick="selectCalDay('${ds}')">
+      <div class="cal-day-num">${d}</div>
+      <div class="cal-dots">${dots}</div>
+    </div>`;
+  }
+  document.getElementById('calendarGrid').innerHTML = html;
+
+  // Populate exercise dropdown if empty
+  const sel = document.getElementById('exHistorySelect');
+  if (sel && sel.options.length === 1) {
+    APPROVED_EXERCISES.forEach(name => {
+      const opt = document.createElement('option');
+      opt.value = name; opt.textContent = name;
+      sel.appendChild(opt);
+    });
+  }
+}
+
+window.selectCalDay = async (ds) => {
+  calSelectedDate = ds;
+  renderCalendar();
+  const detail = document.getElementById('calDayDetail');
+  const content = document.getElementById('calDayDetailContent');
+  detail.style.display = 'block';
+  content.innerHTML = '<div style="color:var(--muted);font-size:13px;padding:4px 0">Loading…</div>';
+
+  // Fetch food if not cached
+  let food = state.foodLog[ds];
+  if (!food && state.uid) {
+    const doc = await fbGet(`users/${state.uid}/food/${ds}`);
+    if (doc?.items) { food = doc.items; state.foodLog[ds] = food; renderCalendar(); }
+  }
+
+  const weightEntry = state.weightLog.find(e => e.date === ds);
+  const workoutItems = [];
+  Object.entries(state.exerciseHistory).forEach(([name, hist]) => {
+    const session = (hist.sessions || []).find(s => s.date === ds);
+    if (session) workoutItems.push({ name, session, pb: hist.personalBest });
+  });
+
+  const dateLabel = new Date(ds + 'T12:00:00').toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric', year:'numeric' });
+  let html = `<div style="font-weight:800;font-size:15px;color:var(--orange);font-family:'Barlow Condensed',sans-serif;margin-bottom:12px;letter-spacing:0.5px">${dateLabel}</div>`;
+  let any = false;
+
+  if (weightEntry) {
+    any = true;
+    html += `<div style="margin-bottom:10px"><div style="font-size:11px;color:var(--muted);letter-spacing:1px;margin-bottom:2px">⚖️ WEIGHT</div><div style="font-size:20px;font-weight:800">${weightEntry.weight} <span style="font-size:13px;font-weight:400;color:var(--muted)">lbs</span></div></div>`;
+  }
+
+  if (food && food.length > 0) {
+    any = true;
+    const cals = food.reduce((a,b)=>a+(b.calories||0),0);
+    const prot = Math.round(food.reduce((a,b)=>a+(b.protein||0),0));
+    html += `<div style="margin-bottom:10px"><div style="font-size:11px;color:var(--muted);letter-spacing:1px;margin-bottom:4px">🥗 FOOD — ${cals} kcal · ${prot}g protein</div>`;
+    html += food.map(f=>`<div style="font-size:13px;padding:2px 0;color:var(--muted)">${f.name||'Food'} <span style="color:var(--text)">${f.calories||0} kcal · ${f.protein||0}g</span></div>`).join('');
+    html += `</div>`;
+  }
+
+  if (workoutItems.length > 0) {
+    any = true;
+    html += `<div><div style="font-size:11px;color:var(--muted);letter-spacing:1px;margin-bottom:6px">💪 WORKOUT</div>`;
+    workoutItems.forEach(({ name, session, pb }) => {
+      const isVolPB = pb?.volume?.date === ds;
+      const isMaxPB = pb?.maxWeight?.date === ds;
+      const badge = (isVolPB || isMaxPB) ? ` <span style="color:#ff5c1a;font-size:11px;font-weight:700">🏆 PB</span>` : '';
+      html += `<div style="margin-bottom:6px;padding:8px 10px;background:#1a1a1a;border-radius:8px">
+        <div style="font-size:14px;font-weight:700;margin-bottom:4px">${name}${badge}</div>
+        ${session.sets.map(s=>`<div style="font-size:12px;color:var(--muted)">Set ${s.set}: ${s.weight} lbs × ${s.reps||'?'} reps</div>`).join('')}
+      </div>`;
+    });
+    html += `</div>`;
+  }
+
+  if (!any) html += `<div style="color:var(--muted);font-size:13px">No data recorded for this day.</div>`;
+  content.innerHTML = html;
+  detail.scrollIntoView({ behavior:'smooth', block:'nearest' });
+};
+
+window.lookupExerciseHistory = () => {
+  const name = document.getElementById('exHistorySelect').value;
+  const container = document.getElementById('exHistoryResult');
+  if (!name) { container.innerHTML = ''; return; }
+
+  const hist = state.exerciseHistory[name];
+  if (!hist?.sessions?.length) {
+    container.innerHTML = `<div style="color:var(--muted);font-size:13px">No history for ${name} yet.</div>`;
+    return;
+  }
+
+  const sessions = [...hist.sessions].sort((a,b) => a.date.localeCompare(b.date));
+  const pb = hist.personalBest;
+  let html = '';
+
+  // PB badges
+  if (pb?.volume || pb?.maxWeight) {
+    html += `<div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">`;
+    if (pb.volume) {
+      const d = new Date(pb.volume.date+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'});
+      html += `<div style="background:#1a1a1a;border-radius:8px;padding:8px 12px;font-size:12px;flex:1"><div style="color:#ff5c1a;font-weight:700;margin-bottom:2px">🏆 Volume PB</div><div style="font-size:15px;font-weight:800">${pb.volume.totalVolume.toLocaleString()} lbs</div><div style="color:var(--muted)">${d}</div></div>`;
+    }
+    if (pb.maxWeight) {
+      const d = new Date(pb.maxWeight.date+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'});
+      html += `<div style="background:#1a1a1a;border-radius:8px;padding:8px 12px;font-size:12px;flex:1"><div style="color:#ff5c1a;font-weight:700;margin-bottom:2px">🏆 Max Weight</div><div style="font-size:15px;font-weight:800">${pb.maxWeight.weight} lbs</div><div style="color:var(--muted)">${d}</div></div>`;
+    }
+    html += `</div>`;
+  }
+
+  // SVG line chart
+  if (sessions.length > 0) {
+    const maxWeights = sessions.map(s => Math.max(...s.sets.map(set => set.weight)));
+    const minW = Math.min(...maxWeights), maxW = Math.max(...maxWeights);
+    const range = maxW - minW || 1;
+    const W = 320, H = 72, PX = 12, PY = 8;
+    const pts = maxWeights.map((w,i) => {
+      const x = PX + (sessions.length < 2 ? (W-PX*2)/2 : (i/(sessions.length-1))*(W-PX*2));
+      const y = PY + (1-(w-minW)/range)*(H-PY*2);
+      return [x,y];
+    });
+    const polyline = pts.map(p=>p.join(',')).join(' ');
+    const dots = pts.map((p,i) => `<circle cx="${p[0]}" cy="${p[1]}" r="3.5" fill="#ff5c1a"/><title>${maxWeights[i]} lbs</title>`).join('');
+    html += `<div style="background:#111;border-radius:8px;padding:10px;margin-bottom:12px">
+      <div style="font-size:10px;color:var(--muted);letter-spacing:1px;margin-bottom:6px">MAX WEIGHT PER SESSION</div>
+      <svg viewBox="0 0 ${W} ${H}" width="100%" style="overflow:visible">
+        <polyline points="${polyline}" fill="none" stroke="#ff5c1a" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+        ${dots}
+        <text x="${pts[0][0]}" y="${H}" font-size="9" fill="#666" text-anchor="middle">${sessions[0].date.slice(5)}</text>
+        ${sessions.length>1?`<text x="${pts[pts.length-1][0]}" y="${H}" font-size="9" fill="#666" text-anchor="middle">${sessions[sessions.length-1].date.slice(5)}</text>`:''}
+      </svg>
+    </div>`;
+  }
+
+  // Session list newest first
+  html += [...sessions].reverse().map(s => {
+    const d = new Date(s.date+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
+    const vol = s.sets.reduce((sum,set)=>sum+(set.weight*(set.reps||0)),0);
+    const maxW = Math.max(...s.sets.map(set=>set.weight));
+    return `<div style="padding:8px 10px;background:#1a1a1a;border-radius:8px;margin-bottom:6px">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">
+        <span style="font-size:13px;font-weight:700">${d}</span>
+        <span style="font-size:11px;color:var(--muted)">Vol ${vol.toLocaleString()} · Max ${maxW} lbs</span>
+      </div>
+      ${s.sets.map(set=>`<span style="font-size:12px;color:var(--muted);margin-right:10px">Set ${set.set}: ${set.weight}×${set.reps||'?'}</span>`).join('')}
+    </div>`;
+  }).join('');
+
+  container.innerHTML = html;
 };
 
 // ── UTILS ────────────────────────────────────────────────────
