@@ -1015,6 +1015,16 @@ const APPROVED_EXERCISES = [
   'Romanian Deadlift','Incline Bench Press','Pull Up','Squat'
 ];
 
+const JOG_WARMUP = { name: '5-Min Treadmill Jog', sets: 1, repsRange: '5 min', suggestedWeight: 0, unit: '', muscleGroup: 'Cardio', notes: '8.6 mph warmup — always first' };
+
+function prependJogIfGymDay(exercises, scheduleType) {
+  const type = (scheduleType || '').toLowerCase();
+  if (type !== 'push' && type !== 'pull') return exercises;
+  // Remove any existing jog entry Gemini may have added, then prepend ours
+  const filtered = exercises.filter(e => !/jog|treadmill|warmup/i.test(e.name));
+  return [JOG_WARMUP, ...filtered];
+}
+
 // ── STATE ────────────────────────────────────────────────────
 let state = {
   uid: null,
@@ -1392,6 +1402,7 @@ Include 5-7 exercises appropriate for ${s.label} day. suggestedWeight should be 
       if (lastSession?.sets?.length > 0) ex.suggestedWeight = lastSession.sets[0].weight;
       return ex;
     });
+    data.exercises = prependJogIfGymDay(data.exercises, s.type);
     state.currentWorkout = data.exercises;
     renderExerciseList(data.exercises);
     if (state.uid) await fbSet(`users/${state.uid}/workouts/${today}`, { exercises: data.exercises, type: s.label, date: today });
@@ -2315,6 +2326,7 @@ Include 5-7 exercises. Apply the changes the user requested.`;
     if (!jsonMatch) return;
     const data = JSON.parse(jsonMatch[0]);
     if (data.exercises && data.exercises.length > 0) {
+      data.exercises = prependJogIfGymDay(data.exercises, s.type);
       state.currentWorkout = data.exercises;
       renderExerciseList(data.exercises);
       if (state.uid) await fbSet(`users/${state.uid}/workouts/${today}`, { exercises: data.exercises, type: s.label, date: today });
