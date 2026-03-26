@@ -1059,7 +1059,7 @@ const APPROVED_EXERCISES = [
   'Romanian Deadlift','Incline Bench Press','Pull Up','Squat'
 ];
 
-const JOG_WARMUP = { name: '5-Min Treadmill Jog', sets: 1, repsRange: '5 min', suggestedWeight: 0, unit: '', muscleGroup: 'Cardio', notes: '8.6 mph warmup — always first' };
+const JOG_WARMUP = { name: '5-Min Treadmill Jog', sets: 1, repsRange: '5', suggestedWeight: 8.6, unit: 'mph', muscleGroup: 'Cardio', notes: '8.6 mph warmup — always first', isJog: true };
 
 function prependJogIfGymDay(exercises, scheduleType) {
   const type = (scheduleType || '').toLowerCase();
@@ -1470,43 +1470,62 @@ function renderExerciseList(exercises) {
     const history = state.exerciseHistory[ex.name];
     const lastSession = history?.sessions?.slice(-1)[0];
 
+    const isJog = !!(ex.isJog);
     let subtitleHTML = '';
     if (lastSession) {
       const d = new Date(lastSession.date + 'T12:00:00');
       const dateLabel = d.toLocaleDateString('en-US', { month:'short', day:'numeric' });
-      const weights = lastSession.sets.map(s => s.weight).join('/');
-      subtitleHTML += `<div style="font-size:11px;color:var(--muted);margin-top:2px">Last: ${dateLabel} · ${weights} lbs</div>`;
+      if (isJog) {
+        const speed = lastSession.sets[0]?.weight ?? 8.6;
+        const dur = lastSession.sets[0]?.reps ?? 5;
+        subtitleHTML += `<div style="font-size:11px;color:var(--muted);margin-top:2px">Last: ${dateLabel} · ${speed} mph · ${dur} min</div>`;
+      } else {
+        const weights = lastSession.sets.map(s => s.weight).join('/');
+        subtitleHTML += `<div style="font-size:11px;color:var(--muted);margin-top:2px">Last: ${dateLabel} · ${weights} lbs</div>`;
+      }
     } else {
-      subtitleHTML += `<div class="exercise-sets">${ex.sets} sets · ${ex.repsRange || '8-12'} reps · ${ex.suggestedWeight ? ex.suggestedWeight + ' ' + (ex.unit||'lbs') : 'bodyweight'}</div>`;
+      subtitleHTML += `<div class="exercise-sets">${ex.sets} sets · ${isJog ? ex.repsRange + ' min' : (ex.repsRange || '8-12') + ' reps'} · ${ex.suggestedWeight ? ex.suggestedWeight + ' ' + (ex.unit||'lbs') : 'bodyweight'}</div>`;
     }
     const pb = history?.personalBest;
     if (pb?.volume) {
       const pbDate = new Date(pb.volume.date + 'T12:00:00').toLocaleDateString('en-US', { month:'short', day:'numeric' });
-      subtitleHTML += `<div style="font-size:11px;color:#ff5c1a;margin-top:1px">🏆 Vol PB: ${pb.volume.totalVolume.toLocaleString()} lbs (${pbDate})</div>`;
+      if (isJog) {
+        subtitleHTML += `<div style="font-size:11px;color:#ff5c1a;margin-top:1px">🏆 Best Distance: ${pb.volume.totalVolume.toFixed(2)} mi (${pbDate})</div>`;
+      } else {
+        subtitleHTML += `<div style="font-size:11px;color:#ff5c1a;margin-top:1px">🏆 Vol PB: ${pb.volume.totalVolume.toLocaleString()} lbs (${pbDate})</div>`;
+      }
     }
     if (pb?.maxWeight) {
       const mwDate = new Date(pb.maxWeight.date + 'T12:00:00').toLocaleDateString('en-US', { month:'short', day:'numeric' });
-      subtitleHTML += `<div style="font-size:11px;color:#ff5c1a;margin-top:1px">🏆 Max: ${pb.maxWeight.weight} lbs (${mwDate})</div>`;
+      if (isJog) {
+        subtitleHTML += `<div style="font-size:11px;color:#ff5c1a;margin-top:1px">🏆 Top Speed: ${pb.maxWeight.weight} mph (${mwDate})</div>`;
+      } else {
+        subtitleHTML += `<div style="font-size:11px;color:#ff5c1a;margin-top:1px">🏆 Max: ${pb.maxWeight.weight} lbs (${mwDate})</div>`;
+      }
     }
 
     const numSets = ex.sets || 3;
     const sets = Array.from({length: numSets}, (_,si) => {
       const lastW = lastSession?.sets?.[si]?.weight ?? ex.suggestedWeight ?? '';
-      const lastR = lastSession?.sets?.[si]?.reps ?? (parseInt(ex.repsRange?.split('-')[0]) || 10);
+      const lastR = lastSession?.sets?.[si]?.reps ?? (isJog ? 5 : (parseInt(ex.repsRange?.split('-')[0]) || 10));
+      const col1Label = isJog ? 'DURATION' : 'REPS';
+      const col1Unit  = isJog ? 'min'      : 'reps';
+      const col2Label = isJog ? 'SPEED (MPH)' : 'WEIGHT';
+      const col2Unit  = isJog ? 'mph'      : (ex.unit||'lbs');
       return `
       <div class="set-row">
         <div class="set-label">Set ${si+1}</div>
         <div class="set-input-group">
           <div class="set-inputs">
             <div>
-              <div class="set-input-label">Reps</div>
-              <input class="set-input" type="number" value="${lastR}" placeholder="${ex.repsRange?.split('-')[0]||10}" data-ex="${ei}" data-set="${si}" data-type="reps" onchange="saveSetData(${ei},${si})">
-              <div class="set-input-unit">reps</div>
+              <div class="set-input-label">${col1Label}</div>
+              <input class="set-input" type="number" step="${isJog?'1':'1'}" value="${lastR}" placeholder="${isJog?5:ex.repsRange?.split('-')[0]||10}" data-ex="${ei}" data-set="${si}" data-type="reps" onchange="saveSetData(${ei},${si})">
+              <div class="set-input-unit">${col1Unit}</div>
             </div>
             <div>
-              <div class="set-input-label">Weight</div>
-              <input class="set-input" type="number" value="${lastW}" placeholder="${lastW||0}" data-ex="${ei}" data-set="${si}" data-type="weight" onchange="saveSetData(${ei},${si})">
-              <div class="set-input-unit">${ex.unit||'lbs'}</div>
+              <div class="set-input-label">${col2Label}</div>
+              <input class="set-input" type="number" step="${isJog?'0.1':'1'}" value="${lastW}" placeholder="${lastW||0}" data-ex="${ei}" data-set="${si}" data-type="weight" onchange="saveSetData(${ei},${si})">
+              <div class="set-input-unit">${col2Unit}</div>
             </div>
           </div>
         </div>
@@ -1571,18 +1590,19 @@ window.addSet = (ei) => {
   const lastW = lastWeightInp?.value || ex.suggestedWeight || '';
   const div = document.createElement('div');
   div.className = 'set-row';
+  const isJog = !!(ex.isJog);
   div.innerHTML = `
     <div class="set-label">Set ${si+1}</div>
     <div class="set-input-group"><div class="set-inputs">
       <div>
-        <div class="set-input-label">Reps</div>
-        <input class="set-input" type="number" value="" placeholder="${ex.repsRange?.split('-')[0]||10}" data-ex="${ei}" data-set="${si}" data-type="reps" onchange="saveSetData(${ei},${si})">
-        <div class="set-input-unit">reps</div>
+        <div class="set-input-label">${isJog ? 'DURATION' : 'REPS'}</div>
+        <input class="set-input" type="number" value="" placeholder="${isJog ? 5 : (ex.repsRange?.split('-')[0]||10)}" data-ex="${ei}" data-set="${si}" data-type="reps" onchange="saveSetData(${ei},${si})">
+        <div class="set-input-unit">${isJog ? 'min' : 'reps'}</div>
       </div>
       <div>
-        <div class="set-input-label">Weight</div>
-        <input class="set-input" type="number" value="${lastW}" placeholder="${lastW||0}" data-ex="${ei}" data-set="${si}" data-type="weight" onchange="saveSetData(${ei},${si})">
-        <div class="set-input-unit">${ex.unit||'lbs'}</div>
+        <div class="set-input-label">${isJog ? 'SPEED (MPH)' : 'WEIGHT'}</div>
+        <input class="set-input" type="number" step="${isJog ? '0.1' : '1'}" value="${lastW}" placeholder="${lastW||0}" data-ex="${ei}" data-set="${si}" data-type="weight" onchange="saveSetData(${ei},${si})">
+        <div class="set-input-unit">${isJog ? 'mph' : (ex.unit||'lbs')}</div>
       </div>
     </div></div>
     <button class="set-done-btn" data-ex="${ei}" data-set="${si}" onclick="toggleSetDone(this)">✓</button>`;
@@ -1628,8 +1648,11 @@ window.saveWorkout = async () => {
     const sessions = (existing.sessions || []).filter(s => s.date !== today);
     sessions.push({ date: today, sets });
 
-    // Calculate today's stats
-    const todayVolume = sets.reduce((sum, s) => sum + (s.weight * (s.reps || 0)), 0);
+    // Calculate today's stats — jog uses speed×duration=distance, others use weight×reps=volume
+    const isJog = !!(ex.isJog);
+    const todayVolume = isJog
+      ? sets.reduce((sum, s) => sum + ((s.weight || 0) * (s.reps || 0) / 60), 0)  // miles: mph × min / 60
+      : sets.reduce((sum, s) => sum + (s.weight * (s.reps || 0)), 0);
     const todayMax = Math.max(...sets.map(s => s.weight));
 
     // Compare against stored PBs
@@ -1652,14 +1675,20 @@ window.saveWorkout = async () => {
 
     if (newVolumePB) {
       const prev = oldPB.volume?.totalVolume;
-      pbMessages.push({
+      pbMessages.push(isJog ? {
+        title: `🏆 New Best Distance!`,
+        body: `5-Min Treadmill Jog\n${todayVolume.toFixed(2)} mi${prev ? ` (prev: ${prev.toFixed(2)} mi)` : ''}`
+      } : {
         title: `🏆 New Volume PB!`,
         body: `${ex.name}\n${todayVolume.toLocaleString()} lbs total${prev ? ` (prev: ${prev.toLocaleString()})` : ''}`
       });
     }
     if (newMaxPB && !newVolumePB) {
       const prev = oldPB.maxWeight?.weight;
-      pbMessages.push({
+      pbMessages.push(isJog ? {
+        title: `🏆 New Top Speed!`,
+        body: `5-Min Treadmill Jog\n${todayMax} mph${prev ? ` (prev: ${prev} mph)` : ''}`
+      } : {
         title: `🏆 New Max Weight!`,
         body: `${ex.name}\n${todayMax} lbs${prev ? ` (prev: ${prev} lbs)` : ''}`
       });
