@@ -648,6 +648,11 @@ input[type="file"] { display: none; }
 .loading-logo span { color: var(--orange); }
 #toast { position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%) translateY(20px); background: #333; color: #fff; padding: 10px 20px; border-radius: 24px; font-size: 14px; opacity: 0; pointer-events: none; transition: opacity 0.3s, transform 0.3s; z-index: 9999; white-space: nowrap; }
 #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+@keyframes pbPop { 0% { opacity:0; transform:translateX(-50%) scale(0.85); } 15% { opacity:1; transform:translateX(-50%) scale(1.04); } 25% { transform:translateX(-50%) scale(1); } 80% { opacity:1; } 100% { opacity:0; transform:translateX(-50%) scale(1); } }
+#pb-banner { position:fixed; top:30%; left:50%; transform:translateX(-50%); background:#0e0e0e; border:2px solid #ff5c1a; border-radius:16px; padding:18px 24px; text-align:center; z-index:10000; pointer-events:none; opacity:0; min-width:260px; max-width:88vw; box-shadow:0 0 40px rgba(255,92,26,0.35); }
+#pb-banner.show { animation: pbPop 3.8s ease forwards; }
+#pb-banner .pb-title { font-size:22px; font-weight:900; color:#ff5c1a; font-family:'Barlow Condensed',sans-serif; letter-spacing:1px; }
+#pb-banner .pb-body { font-size:14px; color:#eee; margin-top:6px; font-family:'Barlow Condensed',sans-serif; line-height:1.4; }
 </style>
 </head>
 <body>
@@ -1410,14 +1415,23 @@ function renderExerciseList(exercises) {
     const history = state.exerciseHistory[ex.name];
     const lastSession = history?.sessions?.slice(-1)[0];
 
-    let subtitleHTML;
+    let subtitleHTML = '';
     if (lastSession) {
       const d = new Date(lastSession.date + 'T12:00:00');
       const dateLabel = d.toLocaleDateString('en-US', { month:'short', day:'numeric' });
       const weights = lastSession.sets.map(s => s.weight).join('/');
-      subtitleHTML = `<div style="font-size:11px;color:var(--muted);margin-top:2px">Last: ${dateLabel} · ${weights} lbs</div>`;
+      subtitleHTML += `<div style="font-size:11px;color:var(--muted);margin-top:2px">Last: ${dateLabel} · ${weights} lbs</div>`;
     } else {
-      subtitleHTML = `<div class="exercise-sets">${ex.sets} sets · ${ex.repsRange || '8-12'} reps · ${ex.suggestedWeight ? ex.suggestedWeight + ' ' + (ex.unit||'lbs') : 'bodyweight'}</div>`;
+      subtitleHTML += `<div class="exercise-sets">${ex.sets} sets · ${ex.repsRange || '8-12'} reps · ${ex.suggestedWeight ? ex.suggestedWeight + ' ' + (ex.unit||'lbs') : 'bodyweight'}</div>`;
+    }
+    const pb = history?.personalBest;
+    if (pb?.volume) {
+      const pbDate = new Date(pb.volume.date + 'T12:00:00').toLocaleDateString('en-US', { month:'short', day:'numeric' });
+      subtitleHTML += `<div style="font-size:11px;color:#ff5c1a;margin-top:1px">🏆 Vol PB: ${pb.volume.totalVolume.toLocaleString()} lbs (${pbDate})</div>`;
+    }
+    if (pb?.maxWeight) {
+      const mwDate = new Date(pb.maxWeight.date + 'T12:00:00').toLocaleDateString('en-US', { month:'short', day:'numeric' });
+      subtitleHTML += `<div style="font-size:11px;color:#ff5c1a;margin-top:1px">🏆 Max: ${pb.maxWeight.weight} lbs (${mwDate})</div>`;
     }
 
     const numSets = ex.sets || 3;
@@ -1540,6 +1554,8 @@ window.saveWorkout = async () => {
   if (!state.uid) { showToast('⚠️ Sign in to save'); return; }
   const today = todayStr();
   let saved = 0;
+  const pbMessages = [];
+
   for (let ei = 0; ei < state.currentWorkout.length; ei++) {
     const ex = state.currentWorkout[ei];
     const weightInputs = document.querySelectorAll(`[data-ex="${ei}"][data-type="weight"]`);
@@ -1551,15 +1567,65 @@ window.saveWorkout = async () => {
       if (!isNaN(weight) && weight > 0) sets.push({ set: si+1, weight, reps: isNaN(reps) ? 0 : reps });
     });
     if (sets.length === 0) continue;
+
     const path = `users/${state.uid}/exerciseHistory/${ex.name}`;
     const existing = await fbGet(path) || {};
     const sessions = (existing.sessions || []).filter(s => s.date !== today);
     sessions.push({ date: today, sets });
-    await fbSet(path, { sessions });
-    state.exerciseHistory[ex.name] = { sessions };
+
+    // Calculate today's stats
+    const todayVolume = sets.reduce((sum, s) => sum + (s.weight * (s.reps || 0)), 0);
+    const todayMax = Math.max(...sets.map(s => s.weight));
+
+    // Compare against stored PBs
+    const oldPB = existing.personalBest || {};
+    const personalBest = { ...oldPB };
+    let newVolumePB = false, newMaxPB = false;
+
+    if (todayVolume > 0 && todayVolume > (oldPB.volume?.totalVolume || 0)) {
+      personalBest.volume = { date: today, totalVolume: todayVolume, sets };
+      newVolumePB = true;
+    }
+    if (todayMax > (oldPB.maxWeight?.weight || 0)) {
+      personalBest.maxWeight = { date: today, weight: todayMax, sets };
+      newMaxPB = true;
+    }
+
+    await fbSet(path, { sessions, personalBest });
+    state.exerciseHistory[ex.name] = { sessions, personalBest };
     saved++;
+
+    if (newVolumePB) {
+      const prev = oldPB.volume?.totalVolume;
+      pbMessages.push({
+        title: `🏆 New Volume PB!`,
+        body: `${ex.name}\n${todayVolume.toLocaleString()} lbs total${prev ? ` (prev: ${prev.toLocaleString()})` : ''}`
+      });
+    }
+    if (newMaxPB && !newVolumePB) {
+      const prev = oldPB.maxWeight?.weight;
+      pbMessages.push({
+        title: `🏆 New Max Weight!`,
+        body: `${ex.name}\n${todayMax} lbs${prev ? ` (prev: ${prev} lbs)` : ''}`
+      });
+    }
   }
-  showToast(saved > 0 ? `✅ Workout saved (${saved} exercises)` : '⚠️ Enter weights first');
+
+  if (saved === 0) { showToast('⚠️ Enter weights first'); return; }
+  showToast(`✅ Workout saved (${saved} exercises)`);
+  renderExerciseList(state.currentWorkout);
+
+  // Queue PB celebrations with staggered timing
+  pbMessages.forEach((msg, i) => {
+    setTimeout(() => {
+      const banner = document.getElementById('pb-banner');
+      banner.querySelector('.pb-title').textContent = msg.title;
+      banner.querySelector('.pb-body').textContent = msg.body;
+      banner.classList.remove('show');
+      void banner.offsetWidth; // force reflow to restart animation
+      banner.classList.add('show');
+    }, i * 4200);
+  });
 };
 
 // ── WEIGHT ───────────────────────────────────────────────────
@@ -2502,5 +2568,6 @@ function showToast(msg, duration = 3000) {
 
 </script>
 <div id="toast"></div>
+<div id="pb-banner"><div class="pb-title"></div><div class="pb-body"></div></div>
 </body>
 </html>
