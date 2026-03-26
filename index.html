@@ -998,6 +998,18 @@ const fbApp = initializeApp(firebaseConfig);
 const auth = getAuth(fbApp);
 const db = getFirestore(fbApp);
 
+// ── APPROVED EXERCISE LIBRARY ────────────────────────────────
+const APPROVED_EXERCISES = [
+  'Machine Lat Pullover','Dumbbell Shrugs','Standing Calf Raise',
+  'DB Wrist Curls/Extensions','Neck Curls/Extensions','Cable Crunch',
+  'Machine Pec Deck','Reverse Pec Deck','Weighted Dips',
+  'Nautilus Glute Drive','Bayesian Cable Curl','Deadlift',
+  'Overhead Press','Walking Lunge','Bench Press',
+  'Seated Leg Curl','Leg Extension','Overhead Cable Triceps Extension',
+  'Preacher Curl','Lateral Raise','T-Bar Row',
+  'Romanian Deadlift','Incline Bench Press','Pull Up','Squat'
+];
+
 // ── STATE ────────────────────────────────────────────────────
 let state = {
   uid: null,
@@ -1351,7 +1363,10 @@ window.generateWorkout = async () => {
   const prompt = buildSystemPrompt() + memoryContext + `\n\nGenerate a specific ${s.label} workout for today in JSON format only. No markdown, no preamble.
 Context: calories eaten today: ${totalCals}kcal (target: ${state.profile.calorieTarget}), protein: ${Math.round(totalProtein)}g, weight: ${latestWeight ? latestWeight.weight+'lbs' : 'unknown'}.
 ${recentCoachContext ? `\nRECENT COACH CONVERSATION (apply any exercise changes discussed):\n${recentCoachContext}\n` : ''}
-IMPORTANT: If the recent conversation requested specific exercise swaps, additions, or removals — apply them now.
+APPROVED EXERCISE LIST — You MUST only select exercises from this list. Do not suggest any exercise outside this list:
+${APPROVED_EXERCISES.join(', ')}
+
+IMPORTANT: If the recent conversation requested specific exercise swaps, additions, or removals — apply them now, but still only from the approved list above.
 Return this exact structure:
 {"exercises":[{"name":"string","sets":number,"repsRange":"e.g. 8-12","suggestedWeight":number,"unit":"lbs","muscleGroup":"string","notes":"brief tip"}]}
 Include 5-7 exercises appropriate for ${s.label} day. suggestedWeight should be realistic starting weight in lbs.`;
@@ -2106,7 +2121,10 @@ async function applyCoachWorkoutChanges(userMsg, coachReply) {
 The user just asked: "${userMsg}"
 You responded: "${coachReply.slice(0,400)}"
 
-Generate an UPDATED ${s.label} workout incorporating the changes discussed above.
+APPROVED EXERCISE LIST — You MUST only select exercises from this list. Do not suggest any exercise outside this list:
+${APPROVED_EXERCISES.join(', ')}
+
+Generate an UPDATED ${s.label} workout incorporating the changes discussed above, using only exercises from the approved list.
 Return ONLY valid JSON, no markdown, no explanation:
 {"exercises":[{"name":"string","sets":number,"repsRange":"e.g. 8-12","suggestedWeight":number,"unit":"lbs","muscleGroup":"string","notes":"brief tip"}]}
 Include 5-7 exercises. Apply the changes the user requested.`;
@@ -2191,7 +2209,10 @@ TODAY (${today}, ${sched[dow]?.label} day):
 - Foods eaten: ${food.map(f=>f.name).join(', ')||'nothing yet'}
 - Current workout exercises: ${currentExercises}
 
-SCHEDULE: Mon/Wed/Fri = Gym (alternating Push/Pull each week), Tue or Thu = Swim, other days = Rest.${memoryBlock}`;
+SCHEDULE: Mon/Wed/Fri = Gym (alternating Push/Pull each week), Tue or Thu = Swim, other days = Rest.
+
+APPROVED EXERCISE LIBRARY (workouts must only use these 25 exercises):
+${APPROVED_EXERCISES.join(', ')}${memoryBlock}`;
 }
 
 // ── GEMINI API ───────────────────────────────────────────────
