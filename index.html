@@ -1049,14 +1049,37 @@ const db = getFirestore(fbApp);
 
 // ── APPROVED EXERCISE LIBRARY ────────────────────────────────
 const APPROVED_EXERCISES = [
-  'Machine Lat Pullover','Dumbbell Shrugs','Standing Calf Raise',
-  'DB Wrist Curls/Extensions','Neck Curls/Extensions','Cable Crunch',
-  'Machine Pec Deck','Reverse Pec Deck','Weighted Dips',
-  'Nautilus Glute Drive','Bayesian Cable Curl','Deadlift',
-  'Overhead Press','Walking Lunge','Bench Press',
-  'Seated Leg Curl','Leg Extension','Overhead Cable Triceps Extension',
-  'Preacher Curl','Lateral Raise','T-Bar Row',
-  'Romanian Deadlift','Incline Bench Press','Pull Up','Squat'
+  // PUSH
+  {name:'Bench Press',                      type:'push'},
+  {name:'Dumbbell Bench Press',             type:'push'},
+  {name:'Incline Bench Press',              type:'push'},
+  {name:'Overhead Press',                   type:'push'},
+  {name:'Weighted Dips',                    type:'push'},
+  {name:'Lateral Raise',                    type:'push'},
+  {name:'Overhead Cable Triceps Extension', type:'push'},
+  {name:'Tricep Pushdowns',                 type:'push'},
+  {name:'Leg Extension',                    type:'push'},
+  {name:'Standing Calf Raise',              type:'push'},
+  {name:'Squat',                            type:'push'},
+  {name:'Goblet Squats',                    type:'push'},
+  {name:'Walking Lunge',                    type:'push'},
+  {name:'Cable Crunch',                     type:'push'},
+  {name:'Nautilus Glute Drive',             type:'push'},
+  // PULL
+  {name:'Deadlift',                         type:'pull'},
+  {name:'Romanian Deadlift',                type:'pull'},
+  {name:'Pull Up',                          type:'pull'},
+  {name:'Lat Pulldowns',                    type:'pull'},
+  {name:'Seated Cable Row',                 type:'pull'},
+  {name:'Bayesian Cable Curl',              type:'pull'},
+  {name:'Preacher Curl',                    type:'pull'},
+  {name:'Dumbbell Shrugs',                  type:'pull'},
+  {name:'Seated Leg Curl',                  type:'pull'},
+  {name:'DB Wrist Curls/Extensions',        type:'pull'},
+  {name:'Neck Curls/Extensions',            type:'pull'},
+  {name:'Face Pulls',                       type:'pull'},
+  // BOTH
+  {name:'Plank',                            type:'both'},
 ];
 
 const JOG_WARMUP = { name: '5-Min Treadmill Jog', sets: 1, repsRange: '5', suggestedWeight: 8.6, unit: 'mph', muscleGroup: 'Cardio', notes: '8.6 mph warmup — always first', isJog: true };
@@ -1425,10 +1448,10 @@ window.generateWorkout = async () => {
     ? '\n\nCOACH MEMORY - User preferences to respect:\n' + state.coachMemory.map(m => '- ' + m).join('\n')
     : '';
 
-  // Push vs Pull exercise guidance
-  const PUSH_EXERCISES = ['Bench Press','Incline Bench Press','Overhead Press','Machine Pec Deck','Weighted Dips','Lateral Raise','Overhead Cable Triceps Extension','Standing Calf Raise','Cable Crunch','Leg Extension','Squat','Walking Lunge'];
-  const PULL_EXERCISES = ['T-Bar Row','Pull Up','Machine Lat Pullover','Reverse Pec Deck','Bayesian Cable Curl','Preacher Curl','Seated Leg Curl','Deadlift','Romanian Deadlift','Dumbbell Shrugs','DB Wrist Curls/Extensions','Neck Curls/Extensions','Nautilus Glute Drive'];
-  const dayExercises = s.type === 'push' ? PUSH_EXERCISES : PULL_EXERCISES;
+  // Derive push/pull lists from tagged exercise library
+  const dayExercises = APPROVED_EXERCISES
+    .filter(e => e.type === s.type || e.type === 'both')
+    .map(e => e.name);
 
   const prompt = buildSystemPrompt() + memoryContext + `
 
@@ -1557,7 +1580,7 @@ function renderExerciseList(exercises) {
     <div style="margin-top:12px;display:flex;gap:8px;align-items:center;">
       <select id="addExerciseSelect" style="flex:1;background:#111;border:1px solid #333;border-radius:8px;color:#eee;padding:8px;font-size:14px;font-family:'Barlow Condensed',sans-serif;">
         <option value="">— Add exercise —</option>
-        ${APPROVED_EXERCISES.map(e => `<option value="${e}">${e}</option>`).join('')}
+        ${APPROVED_EXERCISES.map(e => `<option value="${e.name}">${e.name}</option>`).join('')}
       </select>
       <button onclick="addExercise()" style="background:#ff5c1a;border:none;border-radius:8px;color:#000;font-weight:700;padding:8px 14px;font-family:'Barlow Condensed',sans-serif;font-size:14px;cursor:pointer;">Add</button>
     </div>`;
@@ -2407,7 +2430,7 @@ The user just asked: "${userMsg}"
 You responded: "${coachReply.slice(0,400)}"
 
 APPROVED EXERCISE LIST — You MUST only select exercises from this list. Do not suggest any exercise outside this list:
-${APPROVED_EXERCISES.join(', ')}
+${APPROVED_EXERCISES.map(e=>e.name).join(', ')}
 
 Generate an UPDATED ${s.label} workout incorporating the changes discussed above, using only exercises from the approved list.
 Return ONLY valid JSON, no markdown, no explanation:
@@ -2513,8 +2536,7 @@ ${foodHistoryLines}
 
 SCHEDULE: Mon/Wed/Fri = Gym (alternating Push/Pull each week), Tue or Thu = Swim, other days = Rest.
 
-APPROVED EXERCISE LIBRARY (workouts must only use these 25 exercises):
-${APPROVED_EXERCISES.join(', ')}${memoryBlock}`;
+APPROVED EXERCISE LIBRARY — Push: ${APPROVED_EXERCISES.filter(e=>e.type==='push').map(e=>e.name).join(', ')} | Pull: ${APPROVED_EXERCISES.filter(e=>e.type==='pull').map(e=>e.name).join(', ')} | Both: ${APPROVED_EXERCISES.filter(e=>e.type==='both').map(e=>e.name).join(', ')}${memoryBlock}`;
 }
 
 // ── GEMINI API ───────────────────────────────────────────────
@@ -2730,7 +2752,7 @@ function renderCalendar() {
   // Populate exercise dropdown if empty
   const sel = document.getElementById('exHistorySelect');
   if (sel && sel.options.length === 1) {
-    APPROVED_EXERCISES.forEach(name => {
+    APPROVED_EXERCISES.forEach(({name}) => {
       const opt = document.createElement('option');
       opt.value = name; opt.textContent = name;
       sel.appendChild(opt);
