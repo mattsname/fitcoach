@@ -1425,21 +1425,37 @@ window.generateWorkout = async () => {
     ? '\n\nCOACH MEMORY - User preferences to respect:\n' + state.coachMemory.map(m => '- ' + m).join('\n')
     : '';
 
-  const prompt = buildSystemPrompt() + memoryContext + `\n\nGenerate a specific ${s.label} workout for today in JSON format only. No markdown, no preamble.
-Context: calories eaten today: ${totalCals}kcal (target: ${state.profile.calorieTarget}), protein: ${Math.round(totalProtein)}g, weight: ${latestWeight ? latestWeight.weight+'lbs' : 'unknown'}.
-${recentCoachContext ? `\nRECENT COACH CONVERSATION (apply any exercise changes discussed):\n${recentCoachContext}\n` : ''}
-APPROVED EXERCISE LIST — You MUST only select exercises from this list. Do not suggest any exercise outside this list:
-${APPROVED_EXERCISES.join(', ')}
+  // Push vs Pull exercise guidance
+  const PUSH_EXERCISES = ['Bench Press','Incline Bench Press','Overhead Press','Machine Pec Deck','Weighted Dips','Lateral Raise','Overhead Cable Triceps Extension','Standing Calf Raise','Cable Crunch','Leg Extension','Squat','Walking Lunge'];
+  const PULL_EXERCISES = ['T-Bar Row','Pull Up','Machine Lat Pullover','Reverse Pec Deck','Bayesian Cable Curl','Preacher Curl','Seated Leg Curl','Deadlift','Romanian Deadlift','Dumbbell Shrugs','DB Wrist Curls/Extensions','Neck Curls/Extensions','Nautilus Glute Drive'];
+  const dayExercises = s.type === 'push' ? PUSH_EXERCISES : PULL_EXERCISES;
 
-IMPORTANT: If the recent conversation requested specific exercise swaps, additions, or removals — apply them now, but still only from the approved list above.
-Return this exact structure:
+  const prompt = buildSystemPrompt() + memoryContext + `
+
+TODAY IS A ${s.label.toUpperCase()} DAY. You are generating a ${s.label} workout.
+
+CONTEXT: calories today: ${totalCals}kcal (target: ${state.profile.calorieTarget}), protein: ${Math.round(totalProtein)}g, weight: ${latestWeight ? latestWeight.weight+'lbs' : 'unknown'}.
+${recentCoachContext ? `\nRECENT COACH CONVERSATION (apply any exercise changes discussed):\n${recentCoachContext}\n` : ''}
+APPROVED EXERCISES FOR A ${s.label.toUpperCase()} DAY (pick 5-7 from this list only):
+${dayExercises.join(', ')}
+
+CRITICAL OUTPUT RULES — failure to follow these will break the app:
+- Return ONLY a valid JSON object. No text before or after. No greeting. No explanation. No markdown fences.
+- Start your response with { and end with }
+- Use exactly this structure:
 {"exercises":[{"name":"string","sets":number,"repsRange":"e.g. 8-12","suggestedWeight":number,"unit":"lbs","muscleGroup":"string","notes":"brief tip"}]}
-Include 5-7 exercises appropriate for ${s.label} day. suggestedWeight should be realistic starting weight in lbs.`;
+- suggestedWeight must be a number (realistic starting weight in lbs, not 0)
+- Do NOT include the treadmill jog — it is added automatically`;
 
   try {
-    const res = await callGemini([{role:'user',parts:[{text:'Generate my workout'}]}], prompt);
-    const clean = res.replace(/```json|```/g,'').trim();
+    const res = await callGemini([{role:'user',parts:[{text:`Generate my ${s.label} workout`}]}], prompt);
+    // Strip anything before first { and after last } as safety net
+    const firstBrace = res.indexOf('{');
+    const lastBrace = res.lastIndexOf('}');
+    if (firstBrace === -1 || lastBrace === -1) throw new Error('No JSON object in response');
+    const clean = res.slice(firstBrace, lastBrace + 1);
     const data = JSON.parse(clean);
+    if (!Array.isArray(data.exercises) || data.exercises.length === 0) throw new Error('Empty exercises array');
     // Auto-populate weights from exercise history
     data.exercises = data.exercises.map(ex => {
       const lastSession = state.exerciseHistory[ex.name]?.sessions?.slice(-1)[0];
@@ -1451,8 +1467,10 @@ Include 5-7 exercises appropriate for ${s.label} day. suggestedWeight should be 
     renderExerciseList(data.exercises);
     if (state.uid) await fbSet(`users/${state.uid}/workouts/${today}`, { exercises: data.exercises, type: s.label, date: today });
   } catch(e) {
-    document.getElementById('exerciseList').innerHTML = '<div style="color:var(--red);font-size:13px">Could not generate workout. Check your API key in Settings.</div>';
-    console.error(e);
+    console.error('[FitCoach] generateWorkout failed:', e);
+    document.getElementById('exerciseList').innerHTML = `
+      <div style="color:var(--red);font-size:13px;padding:8px 0">⚠️ Could not generate workout: ${e.message}</div>
+      <button onclick="generateWorkout()" style="margin-top:8px;background:#ff5c1a;border:none;border-radius:8px;color:#000;font-weight:700;padding:8px 16px;font-family:'Barlow Condensed',sans-serif;font-size:14px;cursor:pointer;">↺ Retry</button>`;
   }
 
   btn.innerHTML = 'Regenerate';
