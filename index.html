@@ -2259,12 +2259,6 @@ function addWelcomeMessage() {
 }
 
 function addMsgToUI(role, text) {
-  const msgs = document.getElementById('chatMessages');
-  const div = document.createElement('div');
-  div.className = role === 'user' ? 'msg msg-user' : 'msg msg-ai';
-  div.innerHTML = role === 'ai' ? formatBriefing(text) : text;
-  msgs.appendChild(div);
-  msgs.scrollTop = msgs.scrollHeight;
   renderTodayChat();
 }
 
@@ -2287,74 +2281,57 @@ function renderTodayChat() {
   container.scrollTop = container.scrollHeight;
 }
 
-window.sendTodayChat = () => {
-  const todayInput = document.getElementById('todayChatInput');
-  const chatInput = document.getElementById('chatInput');
-  if (!todayInput.value.trim()) return;
-  chatInput.value = todayInput.value;
-  todayInput.value = '';
-  todayInput.style.height = 'auto';
-  sendChat();
-};
-
 function showTyping() {
-  const msgs = document.getElementById('chatMessages');
+  const container = document.getElementById('today-chat-history');
+  if (!container) return;
   const div = document.createElement('div');
   div.className = 'typing'; div.id = 'typing';
   div.innerHTML = '<span></span><span></span><span></span>';
-  msgs.appendChild(div);
-  msgs.scrollTop = msgs.scrollHeight;
+  div.style.cssText = 'background:#1a1a1a;align-self:flex-start;border-radius:12px;padding:8px 12px;';
+  container.appendChild(div);
+  container.scrollTop = container.scrollHeight;
 }
 
 function hideTyping() { document.getElementById('typing')?.remove(); }
 
-window.sendChat = async () => {
-  const text = document.getElementById('chatInput').value.trim();
-  const attachments = [...state.chatAttachments];
-  if (!text && attachments.length === 0) return;
+window.sendTodayChat = async () => {
+  const todayInput = document.getElementById('todayChatInput');
+  const text = todayInput.value.trim();
+  if (!text) return;
 
-  const btn = document.getElementById('sendBtn');
-  btn.disabled = true;
-  if (text) addMsgToUI('user', text);
-  document.getElementById('chatInput').value = '';
-  document.getElementById('chatInput').style.height = 'auto';
-  state.chatAttachments = [];
-  document.getElementById('chatPreviews').innerHTML = '';
+  todayInput.value = '';
+  todayInput.style.height = 'auto';
+  todayInput.disabled = true;
 
+  state.chatHistory.push({ role:'user', parts:[{ text }] });
+  renderTodayChat();
   showTyping();
-  const parts = [];
-  attachments.forEach(b64 => parts.push({ inline_data: { mime_type:'image/jpeg', data:b64 } }));
-  if (text) parts.push({ text });
-
-  state.chatHistory.push({ role:'user', parts });
 
   try {
     const reply = await callGemini(state.chatHistory, buildSystemPrompt());
     state.chatHistory.push({ role:'model', parts:[{text:reply}] });
     hideTyping();
-    addMsgToUI('ai', reply);
+    renderTodayChat();
 
-    // Check if coach made workout or schedule changes — if so, re-generate workout
     const workoutTriggers = /swap|replace|change|switch|add|remove|instead|modify|update|adjust|restructure|incorporate|leg|push|pull|schedule/i;
-    const isWorkoutRelated = workoutTriggers.test(text);
-    if (isWorkoutRelated) {
+    if (workoutTriggers.test(text)) {
       try { await applyCoachWorkoutChanges(text, reply); }
       catch(e) { console.warn('[FitCoach] applyCoachWorkoutChanges failed:', e); }
     }
 
-    // Run memory extraction in background every 2 coach replies
     state.coachReplyCount++;
     console.log('[FitCoach] coachReplyCount:', state.coachReplyCount);
-    if (state.coachReplyCount % 2 === 0) {
-      updateCoachMemory();
-    }
+    if (state.coachReplyCount % 2 === 0) updateCoachMemory();
   } catch(e) {
     hideTyping();
-    addMsgToUI('ai', '❌ Error: ' + e.message);
+    state.chatHistory.push({ role:'model', parts:[{text:'❌ Error: ' + e.message}] });
+    renderTodayChat();
   }
-  btn.disabled = false;
-  renderTodayChat();
+  todayInput.disabled = false;
+  todayInput.focus();
 };
+
+window.sendChat = window.sendTodayChat;
 
 // ── COACH MEMORY ─────────────────────────────────────────────
 async function updateCoachMemory() {
@@ -2481,8 +2458,8 @@ window.sendContextUpdate = () => {
   const food = state.foodLog[today] || [];
   const totalCals = food.reduce((a,b)=>a+(b.calories||0),0);
   const text = `Here's my update for ${today}: weight ${log ? log.weight+'lbs' : 'not logged'}, calories eaten: ${totalCals} (target: ${state.profile.calorieTarget}), foods: ${food.map(f=>f.name).join(', ')||'nothing yet'}. What do you think?`;
-  document.getElementById('chatInput').value = text;
-  sendChat();
+  document.getElementById('todayChatInput').value = text;
+  sendTodayChat();
 };
 
 window.handleChatPhoto = (input) => {
