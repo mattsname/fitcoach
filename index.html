@@ -1170,16 +1170,16 @@ async function loadUserData() {
   const weightSnap = await getDocs(query(collection(db, `${base}/weights`), orderBy('date')));
   state.weightLog = weightSnap.docs.map(d => d.data());
 
-  const today = todayStr();
-  console.log('[FitCoach] loadUserData: fetching food for', today, 'path:', `${base}/food/${today}`);
-  const food = await fbGet(`${base}/food/${today}`);
-  console.log('[FitCoach] loadUserData: food result:', food);
-  if (food && food.items) {
-    state.foodLog[today] = food.items;
-    console.log('[FitCoach] loadUserData: loaded', food.items.length, 'food items');
-  } else {
-    console.log('[FitCoach] loadUserData: no food items found in Firestore for today');
-  }
+  // Fetch last 7 days of food in parallel
+  const last7Dates = Array.from({length: 7}, (_, i) => {
+    const d = new Date(); d.setDate(d.getDate() - i);
+    return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+  });
+  const foodResults = await Promise.all(last7Dates.map(ds => fbGet(`${base}/food/${ds}`)));
+  foodResults.forEach((food, i) => {
+    if (food && food.items) state.foodLog[last7Dates[i]] = food.items;
+  });
+  console.log('[FitCoach] loadUserData: loaded food for', foodResults.filter(f=>f?.items).length, 'of last 7 days');
 
   const exSnap = await getDocs(collection(db, `${base}/exerciseHistory`));
   state.exerciseHistory = {};
@@ -2457,6 +2457,19 @@ function buildSystemPrompt() {
     ? `\nPERSISTENT COACHING MEMORY (always respect these):\n${state.coachMemory.join('\n')}`
     : '';
 
+  // Build 7-day food summary (excludes today which is shown in detail below)
+  const foodHistoryLines = Array.from({length: 6}, (_, i) => {
+    const d = new Date(); d.setDate(d.getDate() - (i + 1));
+    const ds = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+    const label = d.toLocaleDateString('en-US', { month:'short', day:'numeric' });
+    const items = state.foodLog[ds];
+    if (!items || items.length === 0) return `- ${label}: no food logged`;
+    const cals = items.reduce((a,b)=>a+(b.calories||0),0);
+    const prot = Math.round(items.reduce((a,b)=>a+(b.protein||0),0));
+    const names = items.map(f=>f.name).filter(Boolean).join(', ');
+    return `- ${label}: ${cals} kcal, ${prot}g protein (${names||'items logged'})`;
+  }).join('\n');
+
   return `You are Matt's personal fitness coach. Respond conversationally like a knowledgeable friend - direct, warm, and concise. 2-4 sentences max for most responses. Never use bullet points unless listing exercises or meals. No headers. No "Great question!" or filler phrases. Just answer directly and naturally. If Matt asks for a workout change, confirm it in one sentence and act on it. Be encouraging but not cheesy.
 
 IMPORTANT: When the user asks to change exercises, swap movements, adjust their schedule, or modify their workout in any way — acknowledge the change AND know that the app will automatically update the workout list based on your conversation. So make your recommendation clearly.
@@ -2472,6 +2485,9 @@ TODAY (${today}, ${sched[dow]?.label} day):
 - Protein: ${Math.round(totalProtein)}g/${p.proteinTarget}g
 - Foods eaten: ${food.map(f=>f.name).join(', ')||'nothing yet'}
 - Current workout exercises: ${currentExercises}
+
+FOOD LOG (prior 6 days):
+${foodHistoryLines}
 
 SCHEDULE: Mon/Wed/Fri = Gym (alternating Push/Pull each week), Tue or Thu = Swim, other days = Rest.
 
