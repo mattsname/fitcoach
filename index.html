@@ -1208,6 +1208,13 @@ async function loadUserData() {
   state.exerciseHistory = {};
   exSnap.forEach(d => { state.exerciseHistory[d.id] = d.data(); });
   console.log('[FitCoach] loadUserData: loaded exerciseHistory for', exSnap.size, 'exercises');
+
+  // Restore today's workout (including entered set data) if previously saved
+  const todayWorkout = await fbGet(`${base}/workouts/${todayStr()}`);
+  if (todayWorkout?.exercises?.length > 0) {
+    state.currentWorkout = todayWorkout.exercises;
+    console.log('[FitCoach] loadUserData: restored workout with', state.currentWorkout.length, 'exercises');
+  }
 }
 
 async function saveProfile() {
@@ -1358,6 +1365,7 @@ function launchApp() {
   document.getElementById('mainApp').classList.add('visible');
   renderWeekStrip();
   renderTodayWorkout();
+  if (state.currentWorkout?.length > 0) renderExerciseList(state.currentWorkout);
   renderWeightLog();
   renderFoodLog();
   renderNutrition();
@@ -1740,8 +1748,15 @@ window.saveWorkout = async () => {
   }
 
   if (saved === 0) { showToast('⚠️ Enter weights first'); return; }
+  captureWorkoutInputs(); // snapshot DOM → _enteredSets before any re-render
+  // Persist full workout state (structure + entered data) so it survives page refresh
+  if (state.uid) {
+    const sched = getSchedule();
+    const dow = selectedDay !== null ? selectedDay : new Date().getDay();
+    const wType = sched[dow]?.label || '';
+    await fbSet(`users/${state.uid}/workouts/${today}`, { exercises: state.currentWorkout, type: wType, date: today });
+  }
   showToast(`✅ Workout saved (${saved} exercises)`);
-  captureWorkoutInputs();
   renderExerciseList(state.currentWorkout);
 
   // Queue PB celebrations with staggered timing
