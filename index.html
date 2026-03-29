@@ -1504,23 +1504,7 @@ function renderExerciseList(exercises) {
     } else {
       subtitleHTML += `<div class="exercise-sets">${ex.sets} sets · ${isJog ? ex.repsRange + ' min' : (ex.repsRange || '8-12') + ' reps'} · ${ex.suggestedWeight ? ex.suggestedWeight + ' ' + (ex.unit||'lbs') : 'bodyweight'}</div>`;
     }
-    const pb = history?.personalBest;
-    if (pb?.volume) {
-      const pbDate = new Date(pb.volume.date + 'T12:00:00').toLocaleDateString('en-US', { month:'short', day:'numeric' });
-      if (isJog) {
-        subtitleHTML += `<div style="font-size:11px;color:#ff5c1a;margin-top:1px">🏆 Best Distance: ${pb.volume.totalVolume.toFixed(2)} mi (${pbDate})</div>`;
-      } else {
-        subtitleHTML += `<div style="font-size:11px;color:#ff5c1a;margin-top:1px">🏆 Vol PB: ${pb.volume.totalVolume.toLocaleString()} lbs (${pbDate})</div>`;
-      }
-    }
-    if (pb?.maxWeight) {
-      const mwDate = new Date(pb.maxWeight.date + 'T12:00:00').toLocaleDateString('en-US', { month:'short', day:'numeric' });
-      if (isJog) {
-        subtitleHTML += `<div style="font-size:11px;color:#ff5c1a;margin-top:1px">🏆 Top Speed: ${pb.maxWeight.weight} mph (${mwDate})</div>`;
-      } else {
-        subtitleHTML += `<div style="font-size:11px;color:#ff5c1a;margin-top:1px">🏆 Max: ${pb.maxWeight.weight} lbs (${mwDate})</div>`;
-      }
-    }
+    // PB display intentionally omitted here — shown in Progress tab only
 
     const numSets = ex.sets || 3;
     const sets = Array.from({length: numSets}, (_,si) => {
