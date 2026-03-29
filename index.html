@@ -1506,8 +1506,9 @@ function renderExerciseList(exercises) {
 
     const numSets = ex.sets || 3;
     const sets = Array.from({length: numSets}, (_,si) => {
-      const lastW = lastSession?.sets?.[si]?.weight ?? ex.suggestedWeight ?? '';
-      const lastR = lastSession?.sets?.[si]?.reps ?? (isJog ? 5 : (parseInt(ex.repsRange?.split('-')[0]) || 10));
+      const entered = ex._enteredSets?.[si];
+      const lastW = entered?.weight ?? lastSession?.sets?.[si]?.weight ?? ex.suggestedWeight ?? '';
+      const lastR = entered?.reps   ?? lastSession?.sets?.[si]?.reps   ?? (isJog ? 5 : (parseInt(ex.repsRange?.split('-')[0]) || 10));
       const col1Label = isJog ? 'DURATION' : 'REPS';
       const col1Unit  = isJog ? 'min'      : 'reps';
       const col2Label = isJog ? 'SPEED (MPH)' : 'WEIGHT';
@@ -1582,6 +1583,23 @@ window.saveSetData = (exIdx, setIdx) => {
   // Data saved inline in inputs, saved to Firebase on saveWorkout()
 };
 
+// Snapshot all current DOM input values into state.currentWorkout before any re-render
+function captureWorkoutInputs() {
+  if (!state.currentWorkout) return;
+  const list = document.getElementById('exerciseList');
+  if (!list) return;
+  state.currentWorkout.forEach((ex, ei) => {
+    const wInps = list.querySelectorAll(`[data-ex="${ei}"][data-type="weight"]`);
+    const rInps = list.querySelectorAll(`[data-ex="${ei}"][data-type="reps"]`);
+    if (wInps.length === 0) return;
+    ex._enteredSets = Array.from(wInps).map((inp, si) => ({
+      weight: inp.value !== '' ? inp.value : null,
+      reps:   rInps[si]?.value !== '' ? rInps[si].value : null,
+    }));
+    ex.sets = wInps.length; // keep set count in sync with actual rendered rows
+  });
+}
+
 window.addSet = (ei) => {
   const detail = document.querySelector(`#ex-${ei} .exercise-detail`);
   const si = detail.querySelectorAll('.set-row').length;
@@ -1614,6 +1632,7 @@ window.addExercise = () => {
   const name = select.value;
   if (!name) return;
   if (!state.currentWorkout) state.currentWorkout = [];
+  captureWorkoutInputs();
   const lastSession = state.exerciseHistory[name]?.sessions?.slice(-1)[0];
   state.currentWorkout.push({
     name, sets: 3, repsRange: '8-12',
@@ -1697,6 +1716,7 @@ window.saveWorkout = async () => {
 
   if (saved === 0) { showToast('⚠️ Enter weights first'); return; }
   showToast(`✅ Workout saved (${saved} exercises)`);
+  captureWorkoutInputs();
   renderExerciseList(state.currentWorkout);
 
   // Queue PB celebrations with staggered timing
