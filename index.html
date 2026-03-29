@@ -2466,9 +2466,13 @@ Include 5-7 exercises. Apply the changes the user requested.`;
 }
 
 window.quickAsk = (text) => {
-  document.getElementById('chatInput').value = text;
-  sendChat();
   switchTab('today');
+  const input = document.getElementById('todayChatInput');
+  input.value = text;
+  input.style.height = 'auto';
+  input.style.height = input.scrollHeight + 'px';
+  input.focus();
+  input.scrollIntoView({ behavior: 'smooth', block: 'center' });
 };
 
 window.sendContextUpdate = () => {
