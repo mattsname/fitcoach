@@ -2503,7 +2503,8 @@ async function fetchAnalysisData() {
     const exercises = workoutCache[d] || [];
     let volume = 0;
     exercises.forEach(ex => {
-      (ex.sets || ex._enteredSets || []).forEach(s => {
+      const setArr = Array.isArray(ex._enteredSets) ? ex._enteredSets : [];
+      setArr.forEach(s => {
         const w = parseFloat(s.weight) || 0;
         const r = parseInt(s.reps) || 0;
         volume += w * r;
