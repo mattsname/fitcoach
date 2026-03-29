@@ -546,6 +546,19 @@ textarea { resize: none; }
 .photo-slot .ps-icon { font-size: 22px; color: var(--muted); }
 .photo-slot .ps-label { font-size: 11px; color: var(--muted); font-weight: 600; letter-spacing: 1px; text-transform: uppercase; }
 
+/* ── ANALYSIS PANEL ── */
+.analysis-section {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 12px; padding: 16px 18px; margin-bottom: 14px;
+}
+.analysis-section h2 {
+  font-size: 16px; font-weight: 700; color: var(--orange);
+  margin: 0 0 6px; text-transform: uppercase; letter-spacing: 0.5px;
+}
+.analysis-section p {
+  font-size: 13px; color: var(--muted); margin: 0;
+}
+
 /* ── COACH PANEL ── */
 .coach-header {
   display: flex; align-items: center; gap: 8px;
@@ -973,31 +986,15 @@ input[type="file"] { display: none; }
       </div>
     </div>
 
-    <!-- COACH PANEL -->
-    <div class="panel" id="panel-coach">
-      <div class="coach-header">
-        <div class="gemini-badge"><div class="gemini-dot"></div> Gemini AI · Connected</div>
+    <!-- ANALYSIS PANEL -->
+    <div class="panel" id="panel-analysis">
+      <div class="analysis-section">
+        <h2>Weekly Nutrition</h2>
+        <p>Coming soon: 7-day calorie tracking, deficit/surplus analysis, weight correlation</p>
       </div>
-      <div class="quick-chips">
-        <div class="chip" onclick="quickAsk('What should I focus on today?')">🎯 Today's focus</div>
-        <div class="chip" onclick="quickAsk('How is my progress looking?')">📈 My progress</div>
-        <div class="chip" onclick="quickAsk('What should I eat today to hit my goals?')">🥗 What to eat</div>
-        <div class="chip" onclick="quickAsk('Motivate me!')">🔥 Motivate me</div>
-        <div class="chip" onclick="sendContextUpdate()">📋 Send today's data</div>
-      </div>
-      <div class="card" style="padding:12px">
-        <div class="chat-messages" id="chatMessages"></div>
-        <div class="chat-input-area">
-          <div class="chat-attach-row">
-            <button class="attach-btn" onclick="document.getElementById('chatPhoto').click()">📷 Add Photo</button>
-            <input type="file" id="chatPhoto" accept="image/*" multiple onchange="handleChatPhoto(this)">
-          </div>
-          <div class="attach-previews" id="chatPreviews"></div>
-          <div class="chat-row">
-            <textarea id="chatInput" placeholder="Ask your coach anything..." rows="1" oninput="this.style.height='auto';this.style.height=this.scrollHeight+'px'" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendChat();}"></textarea>
-            <button class="send-btn" onclick="sendChat()" id="sendBtn">➤</button>
-          </div>
-        </div>
+      <div class="analysis-section">
+        <h2>Workout Progressive Overload</h2>
+        <p>Coming soon: strength trends, last session comparisons, week-over-week progress</p>
       </div>
     </div>
 
@@ -1017,9 +1014,9 @@ input[type="file"] { display: none; }
       <span class="nav-icon">📈</span>
       <span class="nav-label">Progress</span>
     </button>
-    <button class="nav-item" id="nav-coach" onclick="switchTab('coach')">
-      <span class="nav-icon">🤖</span>
-      <span class="nav-label">Coach</span>
+    <button class="nav-item" id="nav-analysis" onclick="switchTab('analysis')">
+      <span class="nav-icon">📊</span>
+      <span class="nav-label">Analysis</span>
     </button>
   </div>
 
@@ -2471,7 +2468,7 @@ Include 5-7 exercises. Apply the changes the user requested.`;
 window.quickAsk = (text) => {
   document.getElementById('chatInput').value = text;
   sendChat();
-  switchTab('coach');
+  switchTab('today');
 };
 
 window.sendContextUpdate = () => {
