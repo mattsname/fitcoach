@@ -559,6 +559,69 @@ textarea { resize: none; }
   font-size: 13px; color: var(--muted); margin: 0;
 }
 
+/* ── ANALYSIS NUTRITION ── */
+.an-date-strip {
+  display: flex; gap: 5px; margin-bottom: 12px;
+  overflow-x: auto; -webkit-overflow-scrolling: touch; padding-bottom: 2px;
+}
+.an-day-chip {
+  flex: 1; min-width: 36px; background: var(--surface2); border: 1px solid var(--border);
+  border-radius: 10px; padding: 6px 2px; text-align: center; cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+.an-day-chip.active { border-color: var(--orange); background: rgba(255,92,26,0.12); }
+.an-day-chip.today .an-chip-num { color: var(--orange); }
+.an-chip-name { font-size: 9px; color: var(--muted); font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase; }
+.an-chip-num { font-size: 15px; font-weight: 700; font-family: 'Barlow Condensed', sans-serif; line-height: 1.3; }
+.an-detail-card {
+  background: var(--surface2); border: 1px solid var(--border);
+  border-radius: 12px; padding: 14px; margin-bottom: 12px;
+}
+.an-detail-header {
+  display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;
+}
+.an-detail-day { font-size: 13px; font-weight: 700; color: var(--text); text-transform: uppercase; letter-spacing: 0.5px; }
+.an-detail-delta { font-size: 12px; font-weight: 700; }
+.an-macro-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.an-macro-label { font-size: 10px; color: var(--muted); width: 44px; flex-shrink: 0; text-transform: uppercase; letter-spacing: 0.5px; }
+.an-macro-bar-wrap { flex: 1; }
+.an-macro-bar { height: 6px; background: var(--surface3); border-radius: 3px; overflow: hidden; }
+.an-macro-fill { height: 100%; background: var(--orange); border-radius: 3px; transition: width 0.4s; }
+.an-macro-fill.over { background: var(--red); }
+.an-macro-fill.prot { background: #4fc3f7; }
+.an-macro-fill.prot.met { background: var(--green); }
+.an-macro-nums { font-size: 11px; color: var(--muted); min-width: 68px; text-align: right; flex-shrink: 0; }
+.an-food-list { margin-top: 10px; border-top: 1px solid var(--border); padding-top: 8px; }
+.an-food-item { display: flex; justify-content: space-between; align-items: center; padding: 3px 0; font-size: 12px; }
+.an-food-macros { color: var(--muted); font-size: 11px; flex-shrink: 0; margin-left: 8px; }
+.an-section-label { font-size: 10px; color: var(--muted); letter-spacing: 1.5px; text-transform: uppercase; margin-bottom: 6px; }
+.an-week-rows { display: flex; flex-direction: column; gap: 1px; margin-bottom: 10px; }
+.an-week-row {
+  display: flex; align-items: center; gap: 8px; padding: 7px 8px;
+  border-radius: 8px; cursor: pointer; transition: background 0.15s;
+}
+.an-week-row.today, .an-week-row:active { background: var(--surface2); }
+.an-row-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+.an-row-day { font-size: 11px; font-weight: 700; color: var(--muted); width: 26px; flex-shrink: 0; text-transform: uppercase; }
+.an-week-row.today .an-row-day { color: var(--orange); }
+.an-row-bars { flex: 1; display: flex; flex-direction: column; gap: 3px; }
+.an-mini-bar { height: 4px; background: var(--surface3); border-radius: 2px; overflow: hidden; }
+.an-mini-fill { height: 100%; background: var(--orange); border-radius: 2px; transition: width 0.4s; }
+.an-mini-fill.over { background: var(--red); }
+.an-mini-fill.prot { background: #4fc3f7; }
+.an-mini-fill.prot.met { background: var(--green); }
+.an-row-nums { text-align: right; min-width: 54px; flex-shrink: 0; }
+.an-row-cal { font-size: 11px; font-weight: 700; }
+.an-row-prot { font-size: 10px; color: var(--muted); }
+.an-legend { font-size: 10px; color: var(--muted); display: flex; align-items: center; gap: 4px; margin-bottom: 10px; }
+.an-legend-dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+.an-week-summary { display: flex; gap: 8px; margin-top: 4px; margin-bottom: 10px; }
+.an-correlation {
+  padding: 10px 12px; background: var(--surface2); border: 1px solid var(--border);
+  border-radius: 10px; font-size: 13px; color: var(--muted); line-height: 1.5;
+}
+.an-correlation strong { color: var(--text); }
+
 /* ── COACH PANEL ── */
 .coach-header {
   display: flex; align-items: center; gap: 8px;
@@ -990,7 +1053,7 @@ input[type="file"] { display: none; }
     <div class="panel" id="panel-analysis">
       <div class="analysis-section">
         <h2>Weekly Nutrition</h2>
-        <p>Coming soon: 7-day calorie tracking, deficit/surplus analysis, weight correlation</p>
+        <div id="analysisNutrition"><div style="color:var(--muted);font-size:13px;text-align:center;padding:20px 0">Loading...</div></div>
       </div>
       <div class="analysis-section">
         <h2>Workout Progressive Overload</h2>
@@ -2115,6 +2178,187 @@ function renderWeeklyNutrition() {
   container.innerHTML = rowsHtml + summaryHtml;
 }
 
+// ── ANALYSIS TAB: WEEKLY NUTRITION ───────────────────────────
+function getWeekDates() {
+  const today = new Date();
+  const dow = today.getDay(); // 0 = Sunday
+  const dates = [];
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(today);
+    d.setDate(today.getDate() - dow + i);
+    dates.push(d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'));
+  }
+  return dates;
+}
+
+let analysisSelectedDay = null;
+
+async function renderAnalysisNutrition() {
+  const container = document.getElementById('analysisNutrition');
+  if (!container) return;
+
+  const weekDates = getWeekDates();
+  const todayDate = todayStr();
+  const calTarget = parseInt(state.profile?.calorieTarget) || 2200;
+  const protTarget = parseInt(state.profile?.proteinTarget) || 180;
+  const DAY_SHORT = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  const MONTHS_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+  // Fetch any missing days
+  if (state.uid) {
+    const fetches = weekDates.filter(d => state.foodLog[d] === undefined).map(d =>
+      fbGet(`users/${state.uid}/food/${d}`).then(food => {
+        state.foodLog[d] = food?.items || [];
+      })
+    );
+    if (fetches.length) {
+      container.innerHTML = '<div style="color:var(--muted);font-size:13px;text-align:center;padding:20px 0">Loading...</div>';
+      await Promise.all(fetches);
+    }
+  }
+
+  if (!analysisSelectedDay || !weekDates.includes(analysisSelectedDay)) {
+    analysisSelectedDay = todayDate;
+  }
+
+  // ── Date strip ──
+  const stripHtml = weekDates.map(dateStr => {
+    const d = new Date(dateStr + 'T12:00:00');
+    const isToday = dateStr === todayDate;
+    const isSelected = dateStr === analysisSelectedDay;
+    const items = state.foodLog[dateStr] || [];
+    const cals = items.reduce((s,f) => s+(f.calories||0), 0);
+    const dotColor = cals === 0 ? 'transparent' : (cals > calTarget ? 'var(--red)' : 'var(--green)');
+    return `<div class="an-day-chip${isSelected?' active':''}${isToday?' today':''}" onclick="selectAnalysisDay('${dateStr}')">
+      <div class="an-chip-name">${DAY_SHORT[d.getDay()]}</div>
+      <div class="an-chip-num">${d.getDate()}</div>
+      <div style="width:5px;height:5px;border-radius:50%;background:${dotColor};margin:3px auto 0"></div>
+    </div>`;
+  }).join('');
+
+  // ── Detail card for selected day ──
+  const selItems = state.foodLog[analysisSelectedDay] || [];
+  const selCals = Math.round(selItems.reduce((s,f) => s+(f.calories||0), 0));
+  const selProt = Math.round(selItems.reduce((s,f) => s+(f.protein||0), 0));
+  const selD = new Date(analysisSelectedDay + 'T12:00:00');
+  const selLabel = DAY_SHORT[selD.getDay()] + ' ' + MONTHS_SHORT[selD.getMonth()] + ' ' + selD.getDate();
+  const calPct = selCals > 0 ? Math.min(100, Math.round(selCals/calTarget*100)) : 0;
+  const protPct = selProt > 0 ? Math.min(100, Math.round(selProt/protTarget*100)) : 0;
+  const calDelta = calTarget - selCals;
+  const calOver = selCals > 0 && calDelta < 0;
+  const calDeltaLabel = selCals === 0 ? 'No data' : (calOver ? `+${Math.abs(calDelta)} surplus` : `\u2212${calDelta} deficit`);
+  const calDeltaColor = selCals === 0 ? 'var(--muted)' : (calOver ? 'var(--red)' : 'var(--green)');
+
+  const foodItemsHtml = selItems.length > 0
+    ? selItems.map(f => `<div class="an-food-item"><span>${f.emoji||'🍽️'} ${f.name}</span><span class="an-food-macros">${f.calories||0} kcal · ${f.protein||0}g pro</span></div>`).join('')
+    : `<div style="color:var(--muted);font-size:12px;text-align:center;padding:6px 0">No food logged</div>`;
+
+  const detailHtml = `<div class="an-detail-card">
+    <div class="an-detail-header">
+      <span class="an-detail-day">${selLabel}</span>
+      <span class="an-detail-delta" style="color:${calDeltaColor}">${calDeltaLabel}</span>
+    </div>
+    <div class="an-macro-row">
+      <div class="an-macro-label">Calories</div>
+      <div class="an-macro-bar-wrap"><div class="an-macro-bar"><div class="an-macro-fill${calOver?' over':''}" style="width:${calPct}%"></div></div></div>
+      <div class="an-macro-nums">${selCals} / ${calTarget}</div>
+    </div>
+    <div class="an-macro-row">
+      <div class="an-macro-label">Protein</div>
+      <div class="an-macro-bar-wrap"><div class="an-macro-bar"><div class="an-macro-fill prot${selProt>=protTarget?' met':''}" style="width:${protPct}%"></div></div></div>
+      <div class="an-macro-nums">${selProt}g / ${protTarget}g</div>
+    </div>
+    <div class="an-food-list">${foodItemsHtml}</div>
+  </div>`;
+
+  // ── 7-day compact rows ──
+  const rowsHtml = weekDates.map(dateStr => {
+    const items = state.foodLog[dateStr] || [];
+    const cals = Math.round(items.reduce((s,f) => s+(f.calories||0), 0));
+    const prot = Math.round(items.reduce((s,f) => s+(f.protein||0), 0));
+    const d = new Date(dateStr + 'T12:00:00');
+    const isToday = dateStr === todayDate;
+    const hasData = cals > 0;
+    const over = hasData && cals > calTarget;
+    const cPct = hasData ? Math.min(100, Math.round(cals/calTarget*100)) : 0;
+    const pPct = hasData ? Math.min(100, Math.round(prot/protTarget*100)) : 0;
+    const dotColor = !hasData ? 'var(--surface3)' : (over ? 'var(--red)' : 'var(--green)');
+    return `<div class="an-week-row${isToday?' today':''}" onclick="selectAnalysisDay('${dateStr}')">
+      <div class="an-row-dot" style="background:${dotColor}"></div>
+      <div class="an-row-day">${DAY_SHORT[d.getDay()]}</div>
+      <div class="an-row-bars">
+        <div class="an-mini-bar"><div class="an-mini-fill${over?' over':''}" style="width:${cPct}%"></div></div>
+        <div class="an-mini-bar"><div class="an-mini-fill prot${prot>=protTarget?' met':''}" style="width:${pPct}%"></div></div>
+      </div>
+      <div class="an-row-nums">
+        <div class="an-row-cal">${hasData ? cals+'&nbsp;kcal' : '\u2014'}</div>
+        <div class="an-row-prot">${hasData ? prot+'g&nbsp;pro' : ''}</div>
+      </div>
+    </div>`;
+  }).join('');
+
+  // ── Weekly summary ──
+  const loggedDates = weekDates.filter(d => (state.foodLog[d]||[]).length > 0);
+  const totalCalsWeek = weekDates.reduce((s,d) => s + Math.round((state.foodLog[d]||[]).reduce((a,f)=>a+(f.calories||0),0)), 0);
+  const avgCals = loggedDates.length > 0 ? Math.round(totalCalsWeek/loggedDates.length) : 0;
+  const totalDeficit = loggedDates.length * calTarget - totalCalsWeek;
+  const avgDeficit = loggedDates.length > 0 ? Math.round(totalDeficit/loggedDates.length) : 0;
+
+  const weekStart = weekDates[0], weekEnd = weekDates[6];
+  const weekWeights = state.weightLog.filter(e => e.date >= weekStart && e.date <= weekEnd);
+  let weightChange = null;
+  if (weekWeights.length >= 2) {
+    weightChange = (weekWeights[weekWeights.length-1].weight - weekWeights[0].weight).toFixed(1);
+  }
+  const wc = weightChange !== null ? parseFloat(weightChange) : null;
+  const weightColor = wc !== null ? (wc <= 0 ? 'var(--green)' : 'var(--red)') : 'var(--muted)';
+  const weightLabel = wc !== null ? (wc <= 0 ? wc : '+'+wc) + ' lbs' : '\u2014';
+
+  const deficitColor = avgDeficit >= 0 ? 'var(--green)' : 'var(--red)';
+  const deficitLabel = loggedDates.length === 0 ? '\u2014' : (avgDeficit >= 0 ? '\u2212'+avgDeficit : '+'+Math.abs(avgDeficit));
+
+  let correlationHtml = '';
+  if (loggedDates.length >= 3 && wc !== null) {
+    const dir = wc <= 0 ? 'lost' : 'gained';
+    const defLabel = avgDeficit >= 0 ? avgDeficit+' cal/day deficit' : Math.abs(avgDeficit)+' cal/day surplus';
+    correlationHtml = `<div class="an-correlation">You averaged a <strong>${defLabel}</strong> and ${dir} <strong>${Math.abs(wc)} lbs</strong> this week</div>`;
+  }
+
+  const summaryHtml = `<div class="an-week-summary">
+    <div class="week-summary-box">
+      <div class="week-summary-val">${avgCals||'\u2014'}</div>
+      <div class="week-summary-lbl">Avg kcal</div>
+    </div>
+    <div class="week-summary-box">
+      <div class="week-summary-val" style="color:${deficitColor}">${deficitLabel}</div>
+      <div class="week-summary-lbl">Avg deficit</div>
+    </div>
+    <div class="week-summary-box">
+      <div class="week-summary-val" style="color:${weightColor}">${weightLabel}</div>
+      <div class="week-summary-lbl">Weight \u0394</div>
+    </div>
+  </div>${correlationHtml}`;
+
+  container.innerHTML = `
+    <div class="an-date-strip">${stripHtml}</div>
+    ${detailHtml}
+    <div class="an-section-label">This Week</div>
+    <div class="an-week-rows">${rowsHtml}</div>
+    <div class="an-legend">
+      <div class="an-legend-dot" style="background:var(--orange)"></div>&nbsp;Cal&nbsp;&nbsp;
+      <div class="an-legend-dot" style="background:#4fc3f7"></div>&nbsp;Protein&nbsp;&nbsp;
+      <div class="an-legend-dot" style="background:var(--green)"></div>&nbsp;Under target&nbsp;&nbsp;
+      <div class="an-legend-dot" style="background:var(--red)"></div>&nbsp;Over target
+    </div>
+    ${summaryHtml}
+  `;
+}
+
+window.selectAnalysisDay = (dateStr) => {
+  analysisSelectedDay = dateStr;
+  renderAnalysisNutrition();
+};
+
 function renderNutrition() {
   const today = todayStr();
   const log = state.foodLog[today] || [];
@@ -2686,6 +2930,9 @@ window.switchTab = (name) => {
   }
   if(name==='today') {
     renderTodayChat();
+  }
+  if(name==='analysis') {
+    renderAnalysisNutrition();
   }
 };
 
