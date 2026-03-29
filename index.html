@@ -622,6 +622,59 @@ textarea { resize: none; }
 }
 .an-correlation strong { color: var(--text); }
 
+/* ── ANALYSIS DASHBOARD ── */
+.an-card-header {
+  display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;
+}
+.an-card-header h2 { margin: 0; }
+.an-action-btn {
+  background: var(--orange); border: none; color: #000;
+  font-family: 'Barlow Condensed', sans-serif; font-size: 13px; font-weight: 700;
+  padding: 5px 12px; border-radius: 20px; cursor: pointer; white-space: nowrap;
+  transition: opacity 0.15s;
+}
+.an-action-btn:disabled { opacity: 0.5; cursor: default; }
+.an-summary {
+  font-size: 14px; color: var(--text); line-height: 1.65;
+  min-height: 40px; white-space: pre-wrap;
+}
+.an-summary strong { color: var(--orange); }
+.an-ask-row {
+  display: flex; gap: 8px; margin-top: 14px;
+  padding-top: 12px; border-top: 1px solid var(--border);
+}
+.an-ask-input {
+  flex: 1; background: var(--surface2); border: 1px solid var(--border);
+  border-radius: 8px; color: var(--text); font-family: 'Barlow Condensed', sans-serif;
+  font-size: 14px; padding: 7px 10px; outline: none;
+}
+.an-ask-input:focus { border-color: var(--orange); }
+.an-chart-title {
+  font-size: 14px; font-weight: 500; color: var(--text); margin-bottom: 10px;
+}
+.an-insight {
+  margin-top: 10px; padding: 8px 10px;
+  background: var(--surface2); border-radius: var(--radius-sm);
+  font-size: 12px; color: var(--muted); line-height: 1.5;
+  min-height: 18px;
+}
+.an-explorer-toggle {
+  background: none; border: 1px solid var(--border); color: var(--muted);
+  font-family: 'Barlow Condensed', sans-serif; font-size: 14px; font-weight: 600;
+  padding: 8px 14px; border-radius: 8px; cursor: pointer; width: 100%; text-align: left;
+  transition: border-color 0.15s, color 0.15s;
+}
+.an-explorer-toggle:hover { border-color: var(--orange); color: var(--text); }
+.an-checkboxes {
+  display: flex; flex-wrap: wrap; gap: 8px 14px;
+}
+.an-cb-label {
+  display: flex; align-items: center; gap: 6px; cursor: pointer;
+  font-size: 13px; color: var(--text); user-select: none;
+}
+.an-cb-label input[type=checkbox] { accent-color: var(--orange); cursor: pointer; }
+.an-cb-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+
 /* ── COACH PANEL ── */
 .coach-header {
   display: flex; align-items: center; gap: 8px;
@@ -1051,14 +1104,57 @@ input[type="file"] { display: none; }
 
     <!-- ANALYSIS PANEL -->
     <div class="panel" id="panel-analysis">
+
+      <!-- Coach Summary -->
       <div class="analysis-section">
-        <h2>Weekly Nutrition</h2>
-        <div id="analysisNutrition"><div style="color:var(--muted);font-size:13px;text-align:center;padding:20px 0">Loading...</div></div>
+        <div class="an-card-header">
+          <h2>This week's analysis</h2>
+          <button class="an-action-btn" onclick="generateWeeklyAnalysis()" id="refreshAnalysisBtn">Refresh ↗</button>
+        </div>
+        <div id="coach-summary" class="an-summary"><span style="color:var(--muted);font-size:13px">Switch to this tab to generate your analysis...</span></div>
+        <div class="an-ask-row">
+          <input id="analysisAskInput" class="an-ask-input" placeholder="Ask a follow-up..." onkeydown="if(event.key==='Enter')sendAnalysisQuestion()">
+          <button class="an-action-btn" onclick="sendAnalysisQuestion()" id="analysisAskBtn">Ask ↗</button>
+        </div>
       </div>
+
+      <!-- Chart A: Diet → Strength -->
       <div class="analysis-section">
-        <h2>Workout Progressive Overload</h2>
-        <p>Coming soon: strength trends, last session comparisons, week-over-week progress</p>
+        <div class="an-chart-title">Diet supporting strength?</div>
+        <div style="position:relative;height:200px"><canvas id="chartDietStrength"></canvas></div>
+        <div class="an-insight" id="insightDietStrength"></div>
       </div>
+
+      <!-- Chart B: Cut Quality -->
+      <div class="analysis-section">
+        <div class="an-chart-title">Losing fat or muscle?</div>
+        <div style="position:relative;height:200px"><canvas id="chartCutQuality"></canvas></div>
+        <div class="an-insight" id="insightCutQuality"></div>
+      </div>
+
+      <!-- Chart C: Recovery -->
+      <div class="analysis-section">
+        <div class="an-chart-title">Recovery quality</div>
+        <div style="position:relative;height:200px"><canvas id="chartRecovery"></canvas></div>
+        <div class="an-insight" id="insightRecovery"></div>
+      </div>
+
+      <!-- Custom Explorer -->
+      <div class="analysis-section">
+        <button class="an-explorer-toggle" onclick="toggleExplorer()" id="explorerToggleBtn">▶ Explore custom correlations</button>
+        <div id="explorerContent" style="display:none;margin-top:14px">
+          <div class="an-checkboxes">
+            <label class="an-cb-label"><input type="checkbox" id="chkCalories" onchange="updateExplorer()"><span class="an-cb-dot" style="background:#4A90D9"></span>Calories</label>
+            <label class="an-cb-label"><input type="checkbox" id="chkProtein" checked onchange="updateExplorer()"><span class="an-cb-dot" style="background:#97C459"></span>Protein</label>
+            <label class="an-cb-label"><input type="checkbox" id="chkWeight" onchange="updateExplorer()"><span class="an-cb-dot" style="background:#EF9F27"></span>Weight</label>
+            <label class="an-cb-label"><input type="checkbox" id="chkBench" onchange="updateExplorer()"><span class="an-cb-dot" style="background:#D85A30"></span>Bench max</label>
+            <label class="an-cb-label"><input type="checkbox" id="chkSquat" onchange="updateExplorer()"><span class="an-cb-dot" style="background:#E07090"></span>Squat max</label>
+            <label class="an-cb-label"><input type="checkbox" id="chkVolume" onchange="updateExplorer()"><span class="an-cb-dot" style="background:#7F77DD"></span>Volume</label>
+          </div>
+          <div style="position:relative;height:260px;margin-top:12px"><canvas id="chartExplorer"></canvas></div>
+        </div>
+      </div>
+
     </div>
 
   </div><!-- end scroll area -->
@@ -2359,6 +2455,379 @@ window.selectAnalysisDay = (dateStr) => {
   renderAnalysisNutrition();
 };
 
+// ── ANALYSIS DASHBOARD ───────────────────────────────────────
+let analysisCharts = {}; // keyed by canvas id
+let analysisDataCache = null;
+let analysisInitialized = false;
+
+function getLast30Days() {
+  const dates = [];
+  const today = new Date();
+  for (let i = 29; i >= 0; i--) {
+    const d = new Date(today);
+    d.setDate(today.getDate() - i);
+    dates.push(d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'));
+  }
+  return dates;
+}
+
+async function fetchAnalysisData() {
+  if (!state.uid) return null;
+  const dates = getLast30Days();
+
+  // Fetch food + workouts in parallel for any uncached dates
+  const foodFetches = dates.filter(d => state.foodLog[d] === undefined).map(d =>
+    fbGet(`users/${state.uid}/food/${d}`).then(r => { state.foodLog[d] = r?.items || []; })
+  );
+  const workoutCache = {};
+  const workoutFetches = dates.map(d =>
+    fbGet(`users/${state.uid}/workouts/${d}`).then(r => { workoutCache[d] = r?.exercises || []; })
+  );
+  await Promise.all([...foodFetches, ...workoutFetches]);
+
+  const calTarget = parseInt(state.profile?.calorieTarget) || 2200;
+  const protTarget = parseInt(state.profile?.proteinTarget) || 180;
+
+  // Build per-day metrics
+  const metrics = dates.map(d => {
+    const food = state.foodLog[d] || [];
+    const cals = Math.round(food.reduce((s,f) => s+(f.calories||0), 0));
+    const prot = Math.round(food.reduce((s,f) => s+(f.protein||0), 0));
+    const deficit = cals > 0 ? calTarget - cals : null;
+
+    // Weight for this date
+    const wEntry = state.weightLog.find(e => e.date === d);
+    const weight = wEntry ? wEntry.weight : null;
+
+    // Workout volume
+    const exercises = workoutCache[d] || [];
+    let volume = 0;
+    exercises.forEach(ex => {
+      (ex.sets || ex._enteredSets || []).forEach(s => {
+        const w = parseFloat(s.weight) || 0;
+        const r = parseInt(s.reps) || 0;
+        volume += w * r;
+      });
+    });
+
+    return { date: d, cals, prot, deficit, weight, volume: volume > 0 ? volume : null };
+  });
+
+  // Build bench/squat max per day from exerciseHistory sessions
+  const benchHistory = state.exerciseHistory['Bench Press']?.sessions || [];
+  const squatHistory = state.exerciseHistory['Squat']?.sessions || [];
+
+  const buildMaxByDate = (sessions) => {
+    const map = {};
+    sessions.forEach(sess => {
+      const maxW = Math.max(...(sess.sets||[]).map(s => parseFloat(s.weight)||0));
+      if (maxW > 0) map[sess.date] = maxW;
+    });
+    return map;
+  };
+  const benchByDate = buildMaxByDate(benchHistory);
+  const squatByDate = buildMaxByDate(squatHistory);
+
+  const data = {
+    dates,
+    calories:  metrics.map(m => m.cals > 0 ? m.cals : null),
+    protein:   metrics.map(m => m.prot > 0 ? m.prot : null),
+    deficit:   metrics.map(m => m.deficit),
+    weight:    metrics.map(m => m.weight),
+    volume:    metrics.map(m => m.volume),
+    benchMax:  dates.map(d => benchByDate[d] || null),
+    squatMax:  dates.map(d => squatByDate[d] || null),
+    calTarget, protTarget,
+  };
+  analysisDataCache = data;
+  return data;
+}
+
+// ── Chart helpers ─────────────────────────────────────────────
+const CHART_DEFAULTS = {
+  responsive: true, maintainAspectRatio: false, animation: { duration: 400 },
+  plugins: { legend: { display: false }, tooltip: { mode: 'index', intersect: false,
+    backgroundColor: '#222', borderColor: '#444', borderWidth: 1,
+    titleColor: '#aaa', bodyColor: '#eee', titleFont: { size: 11 }, bodyFont: { size: 12 }
+  }},
+  scales: {
+    x: { ticks: { color: '#555', font: { size: 10 }, maxTicksLimit: 8, maxRotation: 0 }, grid: { color: '#1e1e1e' } },
+  }
+};
+
+function makeYAxis(id, color, position='left', label='') {
+  return { id, position, ticks: { color, font: { size: 10 }, maxTicksLimit: 5 }, grid: { color: position==='left' ? '#1e1e1e' : 'transparent' }, title: { display: !!label, text: label, color, font: { size: 10 } } };
+}
+
+function makeDataset(label, data, color, yAxisID, opts={}) {
+  return { label, data, borderColor: color, backgroundColor: color+'22',
+    borderWidth: 2, pointRadius: 3, pointBackgroundColor: color,
+    fill: false, tension: 0.35, spanGaps: true, yAxisID, ...opts };
+}
+
+function destroyChart(id) {
+  if (analysisCharts[id]) { analysisCharts[id].destroy(); delete analysisCharts[id]; }
+}
+
+function shortDate(dateStr) {
+  const d = new Date(dateStr + 'T12:00:00');
+  return (d.getMonth()+1) + '/' + d.getDate();
+}
+
+// ── Chart A: Diet → Strength ──────────────────────────────────
+function renderChartDietStrength(data) {
+  destroyChart('chartDietStrength');
+  const ctx = document.getElementById('chartDietStrength');
+  if (!ctx) return;
+  const labels = data.dates.map(shortDate);
+  analysisCharts['chartDietStrength'] = new Chart(ctx, {
+    type: 'line',
+    data: { labels, datasets: [
+      makeDataset('Protein (g)', data.protein, '#97C459', 'yProt'),
+      makeDataset('Bench Max (lbs)', data.benchMax, '#D85A30', 'yBench', { borderDash: [4,2] }),
+    ]},
+    options: { ...CHART_DEFAULTS, scales: {
+      x: CHART_DEFAULTS.scales.x,
+      yProt: makeYAxis('yProt', '#97C459', 'left'),
+      yBench: makeYAxis('yBench', '#D85A30', 'right'),
+    }}
+  });
+
+  // Insight: PRs after high-protein days
+  let prDaysAfterHighProt = 0, highProtDays = 0;
+  for (let i = 0; i < data.dates.length - 1; i++) {
+    if ((data.protein[i] || 0) >= data.protTarget) {
+      highProtDays++;
+      const todayBench = data.benchMax[i+1];
+      const prevBench = data.benchMax.slice(0, i+1).filter(Boolean).pop();
+      if (todayBench && prevBench && todayBench > prevBench) prDaysAfterHighProt++;
+    }
+  }
+  const insightEl = document.getElementById('insightDietStrength');
+  if (insightEl) {
+    insightEl.textContent = highProtDays > 0
+      ? `Hit protein target (${data.protTarget}g+) on ${highProtDays} days in last 30. ${prDaysAfterHighProt > 0 ? prDaysAfterHighProt + ' of those were followed by a bench PR.' : 'No bench PRs the following day.'}`
+      : 'No protein data yet for the last 30 days.';
+  }
+}
+
+// ── Chart B: Cut Quality ──────────────────────────────────────
+function renderChartCutQuality(data) {
+  destroyChart('chartCutQuality');
+  const ctx = document.getElementById('chartCutQuality');
+  if (!ctx) return;
+  const labels = data.dates.map(shortDate);
+  analysisCharts['chartCutQuality'] = new Chart(ctx, {
+    type: 'line',
+    data: { labels, datasets: [
+      makeDataset('Weight (lbs)', data.weight, '#EF9F27', 'yWeight'),
+      makeDataset('Volume (lb·reps)', data.volume, '#7F77DD', 'yVol', { borderDash: [4,2] }),
+    ]},
+    options: { ...CHART_DEFAULTS, scales: {
+      x: CHART_DEFAULTS.scales.x,
+      yWeight: makeYAxis('yWeight', '#EF9F27', 'left'),
+      yVol: makeYAxis('yVol', '#7F77DD', 'right'),
+    }}
+  });
+
+  // Insight: weight loss rate + volume trend
+  const weightPts = data.weight.filter(Boolean);
+  const volPts = data.volume.filter(Boolean);
+  let insight = '';
+  if (weightPts.length >= 2) {
+    const wDelta = (weightPts[weightPts.length-1] - weightPts[0]).toFixed(1);
+    const weeks = data.dates.length / 7;
+    const wkRate = (parseFloat(wDelta) / weeks).toFixed(2);
+    insight += `Weight ${parseFloat(wDelta) <= 0 ? '↓' : '↑'} ${Math.abs(wDelta)} lbs over 30 days (~${Math.abs(wkRate)} lbs/wk). `;
+  }
+  if (volPts.length >= 4) {
+    const firstHalf = volPts.slice(0, Math.floor(volPts.length/2));
+    const secondHalf = volPts.slice(Math.floor(volPts.length/2));
+    const avg = arr => arr.reduce((a,b)=>a+b,0)/arr.length;
+    const volTrend = avg(secondHalf) >= avg(firstHalf) * 0.95 ? 'stable/increasing' : 'declining';
+    insight += `Workout volume is ${volTrend} — ${volTrend === 'stable/increasing' ? '✅ preserving muscle' : '⚠️ possible muscle loss'}.`;
+  }
+  const insightEl = document.getElementById('insightCutQuality');
+  if (insightEl) insightEl.textContent = insight || 'Log workouts and weight to see cut quality analysis.';
+}
+
+// ── Chart C: Recovery ─────────────────────────────────────────
+function renderChartRecovery(data) {
+  destroyChart('chartRecovery');
+  const ctx = document.getElementById('chartRecovery');
+  if (!ctx) return;
+  const labels = data.dates.map(shortDate);
+  const barColors = data.deficit.map(d => {
+    if (d === null) return '#333';
+    if (d < 0) return '#ff3b5c';       // surplus
+    if (d > 500) return '#ff3b5c';     // extreme deficit
+    return '#3dffc0';                  // healthy deficit
+  });
+  analysisCharts['chartRecovery'] = new Chart(ctx, {
+    type: 'bar',
+    data: { labels, datasets: [{
+      label: 'Cal deficit', data: data.deficit,
+      backgroundColor: barColors, borderRadius: 3, borderSkipped: false,
+    }]},
+    options: { ...CHART_DEFAULTS, scales: {
+      x: CHART_DEFAULTS.scales.x,
+      y: { ticks: { color: '#555', font: { size: 10 }, maxTicksLimit: 5 }, grid: { color: '#1e1e1e' } }
+    }}
+  });
+
+  // Insight: large deficit → next-day performance
+  let bigDeficitCount = 0, dropAfterBigDeficit = 0;
+  for (let i = 0; i < data.deficit.length - 1; i++) {
+    if (data.deficit[i] !== null && data.deficit[i] > 500) {
+      bigDeficitCount++;
+      const todayVol = data.volume[i+1];
+      const prevVol = data.volume.slice(0, i+1).filter(Boolean).pop();
+      if (todayVol && prevVol && todayVol < prevVol * 0.9) dropAfterBigDeficit++;
+    }
+  }
+  const insightEl = document.getElementById('insightRecovery');
+  if (insightEl) {
+    insightEl.textContent = bigDeficitCount > 0
+      ? `${bigDeficitCount} days with >500 cal deficit in 30 days. ${dropAfterBigDeficit > 0 ? dropAfterBigDeficit + ' were followed by a >10% volume drop the next workout.' : 'No significant next-day performance drops detected.'}`
+      : 'No large deficit days detected — recovery looks consistent.';
+  }
+}
+
+// ── Custom Explorer ───────────────────────────────────────────
+window.toggleExplorer = () => {
+  const content = document.getElementById('explorerContent');
+  const btn = document.getElementById('explorerToggleBtn');
+  const open = content.style.display === 'none';
+  content.style.display = open ? 'block' : 'none';
+  btn.textContent = (open ? '▼' : '▶') + ' Explore custom correlations';
+  if (open && analysisDataCache) updateExplorer();
+};
+
+window.updateExplorer = () => {
+  const data = analysisDataCache;
+  if (!data) return;
+  destroyChart('chartExplorer');
+  const ctx = document.getElementById('chartExplorer');
+  if (!ctx) return;
+
+  const datasets = [];
+  const labels = data.dates.map(shortDate);
+  const EXPLORER_SETS = [
+    { id: 'chkCalories', key: 'calories',  color: '#4A90D9', label: 'Calories' },
+    { id: 'chkProtein',  key: 'protein',   color: '#97C459', label: 'Protein (g)' },
+    { id: 'chkWeight',   key: 'weight',    color: '#EF9F27', label: 'Weight (lbs)' },
+    { id: 'chkBench',    key: 'benchMax',  color: '#D85A30', label: 'Bench max (lbs)' },
+    { id: 'chkSquat',    key: 'squatMax',  color: '#E07090', label: 'Squat max (lbs)' },
+    { id: 'chkVolume',   key: 'volume',    color: '#7F77DD', label: 'Volume' },
+  ];
+
+  EXPLORER_SETS.forEach((s, i) => {
+    const el = document.getElementById(s.id);
+    if (!el?.checked) return;
+    const yId = 'yEx' + i;
+    datasets.push(makeDataset(s.label, data[s.key], s.color, yId));
+  });
+
+  if (!datasets.length) return;
+
+  // Build yAxes — left for first dataset, right for rest (max 2 visible axes)
+  const scales = { x: CHART_DEFAULTS.scales.x };
+  datasets.forEach((ds, i) => {
+    const color = ds.borderColor;
+    scales[ds.yAxisID] = makeYAxis(ds.yAxisID, color, i === 0 ? 'left' : 'right');
+    if (i > 1) scales[ds.yAxisID].display = false; // hide extra axes
+  });
+
+  analysisCharts['chartExplorer'] = new Chart(ctx, {
+    type: 'line',
+    data: { labels, datasets },
+    options: { ...CHART_DEFAULTS, scales }
+  });
+};
+
+// ── Weekly Analysis (Gemini) ──────────────────────────────────
+window.generateWeeklyAnalysis = async () => {
+  const summaryEl = document.getElementById('coach-summary');
+  const btn = document.getElementById('refreshAnalysisBtn');
+  if (!summaryEl || !state.apiKey) {
+    if (summaryEl) summaryEl.textContent = '⚠️ No API key — add it in Settings.';
+    return;
+  }
+  btn.disabled = true;
+  btn.textContent = '...';
+  summaryEl.textContent = 'Analysing your last 7 days...';
+
+  try {
+    const data = analysisDataCache || await fetchAnalysisData();
+    const last7 = data.dates.slice(-7);
+    const lines = last7.map((d, i) => {
+      const cal = data.calories[data.dates.length - 7 + i];
+      const prot = data.protein[data.dates.length - 7 + i];
+      const w = data.weight[data.dates.length - 7 + i];
+      const vol = data.volume[data.dates.length - 7 + i];
+      return `${d}: cal=${cal??'—'} prot=${prot??'—'}g weight=${w??'—'}lbs vol=${vol??'—'}`;
+    }).join('\n');
+
+    const bench7 = data.benchMax.slice(-7).filter(Boolean);
+    const squat7 = data.squatMax.slice(-7).filter(Boolean);
+
+    const context = `User: Matt, 43yo, Vancouver. Goal: 168 lbs, 2200 cal/day, 180g protein/day.\n\nLast 7 days data:\n${lines}\n\nBench max recent: ${bench7.join(', ')||'—'} lbs\nSquat max recent: ${squat7.join(', ')||'—'} lbs`;
+
+    const sysPrompt = `Analyze this user's fitness data and provide 3-4 bullet point insights about strength trends, nutrition adherence, weight progress, and correlations. End with one actionable recommendation. Use ✅ for positives, ⚠️ for warnings, 💡 for recommendations. Be specific with numbers. Keep each bullet to 1-2 sentences.`;
+
+    const reply = await callGemini([{ role:'user', parts:[{text:context}] }], sysPrompt);
+    summaryEl.textContent = reply;
+  } catch(e) {
+    summaryEl.textContent = '❌ Error: ' + e.message;
+  }
+  btn.disabled = false;
+  btn.textContent = 'Refresh ↗';
+};
+
+window.sendAnalysisQuestion = async () => {
+  const input = document.getElementById('analysisAskInput');
+  const summaryEl = document.getElementById('coach-summary');
+  const btn = document.getElementById('analysisAskBtn');
+  const q = input.value.trim();
+  if (!q || !state.apiKey) return;
+
+  input.value = '';
+  btn.disabled = true;
+  const current = summaryEl.textContent;
+  summaryEl.textContent = current + '\n\n❓ ' + q + '\n...';
+
+  try {
+    const data = analysisDataCache;
+    const contextNote = data ? `User has 30 days of logged fitness data. Current analysis: ${current.slice(0,400)}` : '';
+    const sysPrompt = buildSystemPrompt();
+    const reply = await callGemini([{ role:'user', parts:[{text: contextNote + '\n\nFollow-up question: ' + q}] }], sysPrompt);
+    summaryEl.textContent = current + '\n\n❓ ' + q + '\n💬 ' + reply;
+  } catch(e) {
+    summaryEl.textContent = current + '\n\n❌ ' + e.message;
+  }
+  btn.disabled = false;
+};
+
+// ── Analysis tab init ─────────────────────────────────────────
+async function initAnalysisDashboard() {
+  if (!state.uid) return;
+  // Fetch data if not cached
+  const data = analysisDataCache || await fetchAnalysisData();
+  if (!data) return;
+  // Render charts (destroy+recreate because canvases may have been hidden)
+  renderChartDietStrength(data);
+  renderChartCutQuality(data);
+  renderChartRecovery(data);
+  // Auto-generate Gemini summary on first visit
+  if (!analysisInitialized) {
+    analysisInitialized = true;
+    generateWeeklyAnalysis();
+  }
+  // Restore explorer if open
+  const explorerContent = document.getElementById('explorerContent');
+  if (explorerContent?.style.display !== 'none') updateExplorer();
+}
+
 function renderNutrition() {
   const today = todayStr();
   const log = state.foodLog[today] || [];
@@ -2932,7 +3401,7 @@ window.switchTab = (name) => {
     renderTodayChat();
   }
   if(name==='analysis') {
-    renderAnalysisNutrition();
+    initAnalysisDashboard();
   }
 };
 
