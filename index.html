@@ -290,6 +290,15 @@ textarea { resize: none; }
 .workout-type.rest { color: var(--muted); }
 .workout-meta { font-size: 13px; color: var(--muted); margin-bottom: 14px; }
 .workout-meta span { color: var(--text); font-weight: 500; }
+.day-override-btn {
+  flex: 1; padding: 6px 4px; border-radius: 8px;
+  border: 1px solid var(--border); background: var(--surface2);
+  color: var(--muted); font-family: 'Barlow Condensed', sans-serif;
+  font-size: 13px; font-weight: 700; letter-spacing: 1px;
+  text-transform: uppercase; cursor: pointer; transition: all 0.15s;
+}
+.day-override-btn.active { background: var(--orange); border-color: var(--orange); color: #000; }
+.day-override-btn:not(.active):hover { border-color: var(--muted); color: var(--text); }
 
 /* ── EXERCISE ROW ── */
 .exercise-list { display: flex; flex-direction: column; gap: 10px; }
@@ -943,12 +952,24 @@ input[type="file"] { display: none; }
 
       <div class="card">
         <div class="week-strip" id="weekStrip"></div>
+        <div id="dayOverrideBtns" style="display:flex;gap:6px;margin-bottom:12px;"></div>
         <div class="workout-header">
           <div>
             <div class="workout-type" id="todayType">REST</div>
             <div class="workout-meta" id="todayMeta"></div>
           </div>
-          <button class="btn btn-ghost btn-sm" onclick="generateWorkout()" id="genWorkoutBtn">Generate Plan</button>
+          <div style="position:relative">
+            <div style="display:flex;gap:2px">
+              <button class="btn btn-ghost btn-sm" onclick="generateWorkout()" id="genWorkoutBtn">Generate Plan</button>
+              <button class="btn btn-ghost btn-sm" onclick="toggleWorkoutMenu(event)" style="padding:4px 8px;font-size:11px;border-left:1px solid var(--border)">▼</button>
+            </div>
+            <div id="workoutMenu" style="display:none;position:absolute;right:0;top:calc(100% + 4px);background:#1e1e1e;border:1px solid var(--border);border-radius:10px;z-index:200;min-width:200px;overflow:hidden;box-shadow:0 8px 24px rgba(0,0,0,0.6)">
+              <div onclick="generateWorkout();toggleWorkoutMenu()" style="padding:11px 14px;cursor:pointer;font-size:13px;border-bottom:1px solid #2a2a2a;display:flex;align-items:center;gap:10px">🤖 <span>Ask Coach (AI)</span></div>
+              <div onclick="loadQuickTemplate('push');toggleWorkoutMenu()" style="padding:11px 14px;cursor:pointer;font-size:13px;border-bottom:1px solid #2a2a2a;display:flex;align-items:center;gap:10px"><span style="color:#ff5c1a;font-weight:700;font-family:'Barlow Condensed',sans-serif">PUSH</span> Quick Push Workout</div>
+              <div onclick="loadQuickTemplate('pull');toggleWorkoutMenu()" style="padding:11px 14px;cursor:pointer;font-size:13px;border-bottom:1px solid #2a2a2a;display:flex;align-items:center;gap:10px"><span style="color:#3dffc0;font-weight:700;font-family:'Barlow Condensed',sans-serif">PULL</span> Quick Pull Workout</div>
+              <div onclick="loadQuickTemplate('swim');toggleWorkoutMenu()" style="padding:11px 14px;cursor:pointer;font-size:13px;display:flex;align-items:center;gap:10px"><span style="color:#5ab4ff;font-weight:700;font-family:'Barlow Condensed',sans-serif">SWIM</span> Quick Swim Workout</div>
+            </div>
+          </div>
         </div>
         <div class="exercise-list" id="exerciseList">
           <div style="color:var(--muted);font-size:13px;padding:8px 0">Tap "Generate Plan" to get today's workout from your coach.</div>
@@ -1236,6 +1257,8 @@ const APPROVED_EXERCISES = [
   {name:'Face Pulls',                       type:'pull'},
   // BOTH
   {name:'Plank',                            type:'both'},
+  // SWIM
+  {name:'Swimming',                         type:'swim', isSwim:true, sets:3},
 ];
 
 const JOG_WARMUP = { name: '5-Min Treadmill Jog', sets: 1, repsRange: '5', suggestedWeight: 8.6, unit: 'mph', muscleGroup: 'Cardio', notes: '8.6 mph warmup — always first', isJog: true };
@@ -1572,6 +1595,7 @@ window.selectDay = (day) => {
   // Update generate button label
   const btn = document.getElementById('genWorkoutBtn');
   if (btn && s.type !== 'rest') btn.textContent = 'Generate ' + s.label;
+  renderDayOverrideBtns(s.type);
 };
 
 function renderTodayWorkout() {
@@ -1586,7 +1610,70 @@ function renderTodayWorkout() {
   else metaEl.innerHTML = `<span>${s.label} Day</span> · Gym`;
   const btn = document.getElementById('genWorkoutBtn');
   if (btn) btn.textContent = s.type === 'rest' ? 'Rest Day' : s.type === 'swim' ? 'Swim Day' : `Generate ${s.label}`;
+  renderDayOverrideBtns(s.type);
 }
+
+// ── DAY OVERRIDE ─────────────────────────────────────────────
+function renderDayOverrideBtns(activeType) {
+  const el = document.getElementById('dayOverrideBtns');
+  if (!el) return;
+  el.innerHTML = ['push','pull','swim','rest'].map(t =>
+    `<button class="day-override-btn${activeType === t ? ' active' : ''}" onclick="setDayType('${t}')">${t.toUpperCase()}</button>`
+  ).join('');
+}
+
+window.setDayType = (type) => {
+  const effectiveDay = selectedDay !== null ? selectedDay : new Date().getDay();
+  if (!state.customSchedule) state.customSchedule = {};
+  state.customSchedule[effectiveDay] = type;
+  if (state.uid) fbSet(`users/${state.uid}/profile/main`, { ...state.profile, customSchedule: state.customSchedule, apiKey: state.apiKey });
+  saveLocal();
+  renderWeekStrip();
+  renderTodayWorkout();
+  showToast(`Changed to ${type.toUpperCase()} day`);
+};
+
+// ── WORKOUT MENU (dropdown) ───────────────────────────────────
+window.toggleWorkoutMenu = (e) => {
+  if (e) e.stopPropagation();
+  const menu = document.getElementById('workoutMenu');
+  menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
+};
+document.addEventListener('click', () => {
+  const menu = document.getElementById('workoutMenu');
+  if (menu) menu.style.display = 'none';
+});
+
+// ── QUICK TEMPLATES (no Gemini) ───────────────────────────────
+window.loadQuickTemplate = async (type) => {
+  const today = todayStr();
+  let exercises;
+  if (type === 'swim') {
+    exercises = [{ name:'Swimming', isSwim:true, sets:3, repsRange:'20', suggestedWeight:'Freestyle', unit:'stroke', muscleGroup:'Cardio', notes:'Track lengths per set. Total shown below sets.' }];
+  } else {
+    exercises = APPROVED_EXERCISES
+      .filter(e => e.type === type || e.type === 'both')
+      .map(e => {
+        const lastSession = state.exerciseHistory[e.name]?.sessions?.slice(-1)[0];
+        const suggestedWeight = lastSession?.sets?.[0]?.weight ?? 45;
+        return { name: e.name, sets: e.sets || 3, repsRange: '8-12', suggestedWeight, unit: 'lbs', muscleGroup: type, notes: '' };
+      });
+    exercises = prependJogIfGymDay(exercises, type);
+  }
+  state.currentWorkout = exercises;
+  renderExerciseList(exercises);
+  if (state.uid) await fbSet(`users/${state.uid}/workouts/${today}`, { exercises, type: type.toUpperCase(), date: today });
+  showToast(`✅ Quick ${type.toUpperCase()} workout loaded`);
+};
+
+window.updateSwimTotal = (ei) => {
+  const list = document.getElementById('exerciseList');
+  if (!list) return;
+  const rInps = list.querySelectorAll(`[data-ex="${ei}"][data-type="reps"]`);
+  const total = Array.from(rInps).reduce((sum, inp) => sum + (parseInt(inp.value) || 0), 0);
+  const el = document.getElementById(`swim-total-${ei}`);
+  if (el) el.textContent = `Total: ${total} lengths = ${total * 25}m`;
+};
 
 // ── GENERATE WORKOUT ─────────────────────────────────────────
 window.generateWorkout = async () => {
@@ -1675,7 +1762,8 @@ function renderExerciseList(exercises) {
     const history = state.exerciseHistory[ex.name];
     const lastSession = history?.sessions?.slice(-1)[0];
 
-    const isJog = !!(ex.isJog);
+    const isJog  = !!(ex.isJog);
+    const isSwim = !!(ex.isSwim || ex.name === 'Swimming');
     let subtitleHTML = '';
     if (lastSession) {
       const d = new Date(lastSession.date + 'T12:00:00');
@@ -1684,12 +1772,15 @@ function renderExerciseList(exercises) {
         const speed = lastSession.sets[0]?.weight ?? 8.6;
         const dur = lastSession.sets[0]?.reps ?? 5;
         subtitleHTML += `<div style="font-size:11px;color:var(--muted);margin-top:2px">Last: ${dateLabel} · ${speed} mph · ${dur} min</div>`;
+      } else if (isSwim) {
+        const totalLengths = lastSession.sets.reduce((sum, s) => sum + (parseInt(s.reps) || 0), 0);
+        subtitleHTML += `<div style="font-size:11px;color:var(--muted);margin-top:2px">Last: ${dateLabel} · ${totalLengths} lengths · ${totalLengths * 25}m</div>`;
       } else {
         const weights = lastSession.sets.map(s => s.weight).join('/');
         subtitleHTML += `<div style="font-size:11px;color:var(--muted);margin-top:2px">Last: ${dateLabel} · ${weights} lbs</div>`;
       }
     } else {
-      subtitleHTML += `<div class="exercise-sets">${ex.sets} sets · ${isJog ? ex.repsRange + ' min' : (ex.repsRange || '8-12') + ' reps'} · ${ex.suggestedWeight ? ex.suggestedWeight + ' ' + (ex.unit||'lbs') : 'bodyweight'}</div>`;
+      subtitleHTML += `<div class="exercise-sets">${ex.sets} sets · ${isJog ? ex.repsRange + ' min' : isSwim ? (ex.repsRange||'20') + ' lengths/set' : (ex.repsRange || '8-12') + ' reps'} · ${isSwim ? '' : ex.suggestedWeight ? ex.suggestedWeight + ' ' + (ex.unit||'lbs') : 'bodyweight'}</div>`;
     }
     // PB display intentionally omitted here — shown in Progress tab only
 
@@ -1697,7 +1788,31 @@ function renderExerciseList(exercises) {
     const sets = Array.from({length: numSets}, (_,si) => {
       const entered = ex._enteredSets?.[si];
       const lastW = entered?.weight ?? lastSession?.sets?.[si]?.weight ?? ex.suggestedWeight ?? '';
-      const lastR = entered?.reps   ?? lastSession?.sets?.[si]?.reps   ?? (isJog ? 5 : (parseInt(ex.repsRange?.split('-')[0]) || 10));
+      const lastR = entered?.reps   ?? lastSession?.sets?.[si]?.reps   ?? (isJog ? 5 : isSwim ? 20 : (parseInt(ex.repsRange?.split('-')[0]) || 10));
+      if (isSwim) {
+        const strokes = ['Freestyle','Backstroke','Breaststroke','Butterfly','Mixed'];
+        const strokeVal = lastW || 'Freestyle';
+        return `
+      <div class="set-row">
+        <div class="set-label">Set ${si+1}</div>
+        <div class="set-input-group">
+          <div class="set-inputs">
+            <div>
+              <div class="set-input-label">LENGTHS</div>
+              <input class="set-input" type="number" step="1" value="${lastR}" placeholder="20" data-ex="${ei}" data-set="${si}" data-type="reps" onchange="saveSetData(${ei},${si});updateSwimTotal(${ei})">
+              <div class="set-input-unit">lengths</div>
+            </div>
+            <div>
+              <div class="set-input-label">STROKE</div>
+              <select class="set-input" data-ex="${ei}" data-set="${si}" data-type="weight" onchange="saveSetData(${ei},${si})" style="height:40px;font-size:12px;padding:0 6px;background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:var(--radius-sm)">
+                ${strokes.map(s => `<option value="${s}"${strokeVal===s?' selected':''}>${s}</option>`).join('')}
+              </select>
+            </div>
+          </div>
+        </div>
+        <button class="set-done-btn" data-ex="${ei}" data-set="${si}" onclick="toggleSetDone(this)">✓</button>
+      </div>`;
+      }
       const col1Label = isJog ? 'DURATION' : 'REPS';
       const col1Unit  = isJog ? 'min'      : 'reps';
       const col2Label = isJog ? 'SPEED (MPH)' : 'WEIGHT';
@@ -1723,6 +1838,15 @@ function renderExerciseList(exercises) {
       </div>`;
     }).join('');
 
+    const swimTotalInitial = (() => {
+      if (!isSwim) return '';
+      const total = Array.from({length: numSets}, (_,si) => {
+        const entered = ex._enteredSets?.[si];
+        return parseInt(entered?.reps ?? lastSession?.sets?.[si]?.reps ?? 20) || 0;
+      }).reduce((a,b) => a+b, 0);
+      return `<div id="swim-total-${ei}" style="font-size:12px;color:#5ab4ff;padding:8px 0 4px;font-weight:600">Total: ${total} lengths = ${total * 25}m</div>`;
+    })();
+
     return `<div class="exercise-row" id="ex-${ei}">
       <div class="exercise-header" onclick="toggleExercise(${ei})">
         <div class="exercise-num">${ei+1}</div>
@@ -1738,6 +1862,7 @@ function renderExerciseList(exercises) {
       <div class="exercise-detail">
         ${ex.notes ? `<div style="font-size:12px;color:var(--muted);padding:8px 0 10px;border-bottom:1px solid var(--border);margin-bottom:8px">💡 ${ex.notes}</div>` : ''}
         ${sets}
+        ${swimTotalInitial}
         <button class="add-set-btn" onclick="addSet(${ei})" style="margin-top:8px;background:transparent;border:1px solid #333;border-radius:6px;color:var(--muted);font-size:12px;padding:5px 12px;cursor:pointer;font-family:'Barlow Condensed',sans-serif;">+ Add Set</button>
       </div>
     </div>`;
