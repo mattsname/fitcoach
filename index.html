@@ -1730,7 +1730,10 @@ function renderExerciseList(exercises) {
           <div class="exercise-name">${ex.name}</div>
           ${subtitleHTML}
         </div>
-        <div class="exercise-chevron">▼</div>
+        <div style="display:flex;align-items:center;gap:6px">
+          <button onclick="event.stopPropagation();deleteExercise(${ei})" style="background:transparent;border:1px solid #ff5c1a;border-radius:6px;color:#ff5c1a;font-size:14px;line-height:1;padding:3px 7px;cursor:pointer;font-family:'Barlow Condensed',sans-serif;flex-shrink:0;" title="Remove exercise">×</button>
+          <div class="exercise-chevron">▼</div>
+        </div>
       </div>
       <div class="exercise-detail">
         ${ex.notes ? `<div style="font-size:12px;color:var(--muted);padding:8px 0 10px;border-bottom:1px solid var(--border);margin-bottom:8px">💡 ${ex.notes}</div>` : ''}
@@ -1758,6 +1761,15 @@ function renderExerciseList(exercises) {
 window.toggleExercise = (idx) => {
   const row = document.getElementById(`ex-${idx}`);
   row.classList.toggle('open');
+};
+
+window.deleteExercise = (idx) => {
+  if (!state.currentWorkout) return;
+  const ex = state.currentWorkout[idx];
+  if (!confirm(`Remove ${ex.name}?`)) return;
+  captureWorkoutInputs();
+  state.currentWorkout.splice(idx, 1);
+  renderExerciseList(state.currentWorkout);
 };
 
 window.toggleSetDone = (btn) => {
@@ -2919,7 +2931,7 @@ Format: one short paragraph (2-3 sentences max), then 2-3 bullet action points. 
     content.innerHTML = formatBriefing(res);
     renderTodayChat();
   } catch(e) {
-    content.innerHTML = '<div style="color:var(--muted);font-size:13px">Could not load briefing — check your API key in Settings.</div>';
+    content.innerHTML = `<div style="color:var(--muted);font-size:13px">Could not load briefing — ${e.message}</div>`;
   }
 }
 
@@ -3038,7 +3050,7 @@ window.sendTodayChat = async () => {
     if (state.coachReplyCount % 2 === 0) updateCoachMemory();
   } catch(e) {
     hideTyping();
-    state.chatHistory.push({ role:'model', parts:[{text:'❌ Error: ' + e.message}] });
+    state.chatHistory.push({ role:'model', parts:[{text:'❌ ' + e.message}] });
     renderTodayChat();
   }
   todayInput.disabled = false;
@@ -3254,19 +3266,49 @@ async function callGemini(messages, systemInstruction) {
     contents: messages,
     generationConfig: { temperature: 0.7, maxOutputTokens: 8192 },
   };
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${state.apiKey}`,
-    { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) }
-  );
-  if (!res.ok) {
-    let msg = `HTTP ${res.status}`;
-    try { const e = await res.json(); msg = e.error?.message || msg; } catch(e){}
-    throw new Error(msg);
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${state.apiKey}`;
+  const maxRetries = 3;
+  let lastError;
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    if (attempt > 0) {
+      const waitMs = Math.pow(2, attempt - 1) * 1000; // 1s, 2s
+      console.log(`[FitCoach] callGemini retry ${attempt}/${maxRetries - 1} after ${waitMs}ms — ${new Date().toISOString()}`);
+      showToast(`⏳ Retrying... (${attempt}/${maxRetries - 1})`);
+      await new Promise(r => setTimeout(r, waitMs));
+    }
+    try {
+      const res = await fetch(url, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+      if (!res.ok) {
+        let apiMsg = '';
+        try { const e = await res.json(); apiMsg = e.error?.message || ''; } catch(_){}
+        if (res.status === 503) {
+          lastError = new Error('Gemini servers are busy. Retrying...');
+          lastError._retryable = true;
+          console.warn(`[FitCoach] 503 on attempt ${attempt} — ${new Date().toISOString()}`);
+          continue; // retry
+        } else if (res.status === 401 || res.status === 403) {
+          throw new Error('API key issue. Check your Gemini API key in Settings.');
+        } else {
+          throw new Error(apiMsg || `HTTP ${res.status}`);
+        }
+      }
+      const data = await res.json();
+      const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (!text) throw new Error('No response from Gemini');
+      return text;
+    } catch(e) {
+      if (e._retryable) { lastError = e; continue; }
+      // Network/fetch failure
+      if (e instanceof TypeError) {
+        lastError = new Error('Connection failed. Check your internet connection.');
+        lastError._retryable = true;
+        console.warn(`[FitCoach] network error on attempt ${attempt} — ${new Date().toISOString()}`);
+        continue; // retry
+      }
+      throw e; // non-retryable error
+    }
   }
-  const data = await res.json();
-  const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-  if (!text) throw new Error('No response from Gemini');
-  return text;
+  throw new Error('Gemini servers overloaded. Try again in a few minutes.');
 }
 
 // ── SETTINGS ─────────────────────────────────────────────────
