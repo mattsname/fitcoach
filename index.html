@@ -1959,11 +1959,16 @@ window.addExercise = () => {
   if (!name) return;
   if (!state.currentWorkout) state.currentWorkout = [];
   captureWorkoutInputs();
+  const template = APPROVED_EXERCISES.find(e => e.name === name) || {};
+  const isSwimAdd = !!(template.isSwim || name === 'Swimming');
   const lastSession = state.exerciseHistory[name]?.sessions?.slice(-1)[0];
   state.currentWorkout.push({
-    name, sets: 3, repsRange: '8-12',
-    suggestedWeight: lastSession?.sets?.[0]?.weight || 0,
-    unit: 'lbs', muscleGroup: '', notes: ''
+    ...template,
+    sets: template.sets || 3,
+    repsRange: isSwimAdd ? '20' : '8-12',
+    suggestedWeight: isSwimAdd ? 'Freestyle' : (lastSession?.sets?.[0]?.weight || 0),
+    unit: isSwimAdd ? 'stroke' : 'lbs',
+    muscleGroup: template.type || '', notes: ''
   });
   select.value = '';
   renderExerciseList(state.currentWorkout);
@@ -1978,14 +1983,24 @@ window.saveWorkout = async () => {
 
   for (let ei = 0; ei < state.currentWorkout.length; ei++) {
     const ex = state.currentWorkout[ei];
+    const isSwimEx = !!(ex.isSwim || ex.name === 'Swimming');
     const weightInputs = document.querySelectorAll(`[data-ex="${ei}"][data-type="weight"]`);
     const repInputs = document.querySelectorAll(`[data-ex="${ei}"][data-type="reps"]`);
     const sets = [];
-    weightInputs.forEach((inp, si) => {
-      const weight = parseFloat(inp.value);
-      const reps = parseInt(repInputs[si]?.value);
-      if (!isNaN(weight) && weight > 0) sets.push({ set: si+1, weight, reps: isNaN(reps) ? 0 : reps });
-    });
+    if (isSwimEx) {
+      // Swimming: weight = stroke string, reps = lengths count
+      weightInputs.forEach((inp, si) => {
+        const stroke = inp.value || 'Freestyle';
+        const lengths = parseInt(repInputs[si]?.value);
+        if (!isNaN(lengths) && lengths > 0) sets.push({ set: si+1, weight: stroke, reps: lengths });
+      });
+    } else {
+      weightInputs.forEach((inp, si) => {
+        const weight = parseFloat(inp.value);
+        const reps = parseInt(repInputs[si]?.value);
+        if (!isNaN(weight) && weight > 0) sets.push({ set: si+1, weight, reps: isNaN(reps) ? 0 : reps });
+      });
+    }
     if (sets.length === 0) continue;
 
     const path = `users/${state.uid}/exerciseHistory/${ex.name}`;
@@ -1995,23 +2010,23 @@ window.saveWorkout = async () => {
 
     // Calculate today's stats — jog uses speed×duration=distance, others use weight×reps=volume
     const isJog = !!(ex.isJog);
-    const todayVolume = isJog
-      ? sets.reduce((sum, s) => sum + ((s.weight || 0) * (s.reps || 0) / 60), 0)  // miles: mph × min / 60
-      : sets.reduce((sum, s) => sum + (s.weight * (s.reps || 0)), 0);
-    const todayMax = Math.max(...sets.map(s => s.weight));
-
-    // Compare against stored PBs
+    // Swimming uses stroke strings as weight — skip numeric PB calculations
     const oldPB = existing.personalBest || {};
     const personalBest = { ...oldPB };
     let newVolumePB = false, newMaxPB = false;
-
-    if (todayVolume > 0 && todayVolume > (oldPB.volume?.totalVolume || 0)) {
-      personalBest.volume = { date: today, totalVolume: todayVolume, sets };
-      newVolumePB = true;
-    }
-    if (todayMax > (oldPB.maxWeight?.weight || 0)) {
-      personalBest.maxWeight = { date: today, weight: todayMax, sets };
-      newMaxPB = true;
+    if (!isSwimEx) {
+      const todayVolume = isJog
+        ? sets.reduce((sum, s) => sum + ((s.weight || 0) * (s.reps || 0) / 60), 0)
+        : sets.reduce((sum, s) => sum + (s.weight * (s.reps || 0)), 0);
+      const todayMax = Math.max(...sets.map(s => s.weight));
+      if (todayVolume > 0 && todayVolume > (oldPB.volume?.totalVolume || 0)) {
+        personalBest.volume = { date: today, totalVolume: todayVolume, sets };
+        newVolumePB = true;
+      }
+      if (todayMax > (oldPB.maxWeight?.weight || 0)) {
+        personalBest.maxWeight = { date: today, weight: todayMax, sets };
+        newMaxPB = true;
+      }
     }
 
     await fbSet(path, { sessions, personalBest });
