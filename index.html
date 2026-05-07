@@ -287,6 +287,7 @@ textarea { resize: none; }
 .workout-type.push { color: var(--orange); }
 .workout-type.pull { color: var(--green); }
 .workout-type.swim { color: #5ab4ff; }
+.workout-type.legs { color: #c084fc; }
 .workout-type.rest { color: var(--muted); }
 .workout-meta { font-size: 13px; color: var(--muted); margin-bottom: 14px; }
 .workout-meta span { color: var(--text); font-weight: 500; }
@@ -398,6 +399,7 @@ textarea { resize: none; }
 .day-pill.push .dp-type { color: var(--orange); }
 .day-pill.pull .dp-type { color: var(--green); }
 .day-pill.swim .dp-type { color: #5ab4ff; }
+.day-pill.legs .dp-type { color: #c084fc; }
 
 /* ── LOG PANEL ── */
 .log-section-title {
@@ -967,6 +969,7 @@ input[type="file"] { display: none; }
               <div onclick="generateWorkout();toggleWorkoutMenu()" style="padding:11px 14px;cursor:pointer;font-size:13px;border-bottom:1px solid #2a2a2a;display:flex;align-items:center;gap:10px">🤖 <span>Ask Coach (AI)</span></div>
               <div onclick="loadQuickTemplate('push');toggleWorkoutMenu()" style="padding:11px 14px;cursor:pointer;font-size:13px;border-bottom:1px solid #2a2a2a;display:flex;align-items:center;gap:10px"><span style="color:#ff5c1a;font-weight:700;font-family:'Barlow Condensed',sans-serif">PUSH</span> Quick Push Workout</div>
               <div onclick="loadQuickTemplate('pull');toggleWorkoutMenu()" style="padding:11px 14px;cursor:pointer;font-size:13px;border-bottom:1px solid #2a2a2a;display:flex;align-items:center;gap:10px"><span style="color:#3dffc0;font-weight:700;font-family:'Barlow Condensed',sans-serif">PULL</span> Quick Pull Workout</div>
+              <div onclick="loadQuickTemplate('legs');toggleWorkoutMenu()" style="padding:11px 14px;cursor:pointer;font-size:13px;border-bottom:1px solid #2a2a2a;display:flex;align-items:center;gap:10px"><span style="color:#c084fc;font-weight:700;font-family:'Barlow Condensed',sans-serif">LEGS</span> Quick Legs Workout</div>
               <div onclick="loadQuickTemplate('swim');toggleWorkoutMenu()" style="padding:11px 14px;cursor:pointer;font-size:13px;display:flex;align-items:center;gap:10px"><span style="color:#5ab4ff;font-weight:700;font-family:'Barlow Condensed',sans-serif">SWIM</span> Quick Swim Workout</div>
             </div>
           </div>
@@ -1235,16 +1238,10 @@ const APPROVED_EXERCISES = [
   {name:'Lateral Raise',                    type:'push'},
   {name:'Overhead Cable Triceps Extension', type:'push'},
   {name:'Tricep Pushdowns',                 type:'push'},
-  {name:'Leg Extension',                    type:'push'},
-  {name:'Standing Calf Raise',              type:'push'},
-  {name:'Squat',                            type:'push'},
-  {name:'Goblet Squats',                    type:'push'},
-  {name:'Walking Lunge',                    type:'push'},
   {name:'Cable Crunch',                     type:'push'},
   {name:'Nautilus Glute Drive',             type:'push'},
   // PULL
   {name:'Deadlift',                         type:'pull'},
-  {name:'Romanian Deadlift',                type:'pull'},
   {name:'Pull Up',                          type:'pull'},
   {name:'Lat Pulldowns',                    type:'pull'},
   {name:'Seated Cable Row',                 type:'pull'},
@@ -1255,8 +1252,15 @@ const APPROVED_EXERCISES = [
   {name:'DB Wrist Curls/Extensions',        type:'pull'},
   {name:'Neck Curls/Extensions',            type:'pull'},
   {name:'Face Pulls',                       type:'pull'},
-  // BOTH
-  {name:'Plank',                            type:'both'},
+  // LEGS
+  {name:'Goblet Squat',                     type:'legs'},
+  {name:'Squat',                            type:'legs'},
+  {name:'Walking Lunge',                    type:'legs'},
+  {name:'Romanian Deadlift',                type:'legs'},
+  {name:'Leg Extension',                    type:'legs'},
+  {name:'Standing Calf Raise',              type:'legs'},
+  {name:'Hanging Leg Raises',               type:'legs'},
+  {name:'Plank',                            type:'legs'},
   // SWIM
   {name:'Swimming',                         type:'swim', isSwim:true, sets:3},
 ];
@@ -1265,7 +1269,7 @@ const JOG_WARMUP = { name: '5-Min Treadmill Jog', sets: 1, repsRange: '5', sugge
 
 function prependJogIfGymDay(exercises, scheduleType) {
   const type = (scheduleType || '').toLowerCase();
-  if (type !== 'push' && type !== 'pull') return exercises;
+  if (type !== 'push' && type !== 'pull' && type !== 'legs') return exercises;
   // Remove any existing jog entry Gemini may have added, then prepend ours
   const filtered = exercises.filter(e => !/jog|treadmill|warmup/i.test(e.name));
   return [JOG_WARMUP, ...filtered];
@@ -1292,24 +1296,29 @@ let state = {
 let weightChartInst = null, weightChartBigInst = null;
 
 // ── SCHEDULE ─────────────────────────────────────────────────
-// Week A: Mon=Push, Wed=Pull, Fri=Push
-// Week B: Mon=Pull, Wed=Push, Fri=Pull
-// Swim on Tue or Thu (week-based rotation)
+// 7-day rolling cycle: Push, Swim, Pull, Swim, Legs, Rest, Rest
+// Epoch: 2026-05-04 (Monday) = day 0 of cycle (Push)
+const SCHEDULE_EPOCH = new Date('2026-05-04T00:00:00');
+const CYCLE = ['push','swim','pull','swim','legs','rest','rest'];
+
+function getCycleType(dateObj) {
+  const msPerDay = 24 * 3600 * 1000;
+  const daysSinceEpoch = Math.floor((dateObj - SCHEDULE_EPOCH) / msPerDay);
+  const idx = ((daysSinceEpoch % 7) + 7) % 7; // handle negative mod
+  return CYCLE[idx];
+}
+
 function getSchedule() {
   const now = new Date();
-  const startOfYear = new Date(now.getFullYear(), 0, 1);
-  const weekNum = Math.floor((now - startOfYear) / (7 * 24 * 3600 * 1000));
-  const isWeekA = weekNum % 2 === 0;
-  const base = {
-    1: { type: isWeekA ? 'push' : 'pull', label: isWeekA ? 'PUSH' : 'PULL' },
-    2: { type: 'swim', label: 'SWIM' },
-    3: { type: isWeekA ? 'pull' : 'push', label: isWeekA ? 'PULL' : 'PUSH' },
-    4: { type: 'rest', label: 'REST' },
-    5: { type: isWeekA ? 'push' : 'pull', label: isWeekA ? 'PUSH' : 'PULL' },
-    6: { type: 'rest', label: 'REST' },
-    0: { type: 'rest', label: 'REST' },
-  };
-  // Apply any user overrides from coach conversations
+  // Build a schedule keyed by day-of-week (0=Sun…6=Sat) for the current week
+  const base = {};
+  for (let dow = 0; dow <= 6; dow++) {
+    const d = new Date(now);
+    d.setDate(now.getDate() + (dow - now.getDay())); // move to that DOW in current week
+    const type = getCycleType(d);
+    base[dow] = { type, label: type.toUpperCase() };
+  }
+  // Apply any user overrides
   const custom = state.customSchedule || {};
   for (const [day, type] of Object.entries(custom)) {
     base[parseInt(day)] = { type, label: type.toUpperCase() };
@@ -1579,7 +1588,7 @@ window.selectDay = (day) => {
   const s = sched[day];
   document.getElementById('todayType').textContent = s.label;
   document.getElementById('todayType').className = `workout-type ${s.type}`;
-  document.getElementById('todayMeta').innerHTML = s.type === 'rest' ? 'Active recovery day' : s.type === 'swim' ? '<span>Cardio + Full body</span> · 30–45 min' : `<span>${s.label} Day</span> · Gym`;
+  document.getElementById('todayMeta').innerHTML = s.type === 'rest' ? 'Active recovery day' : s.type === 'swim' ? '<span>Cardio + Full body</span> · 30–45 min' : s.type === 'legs' ? '<span>Legs Day</span> · Gym' : `<span>${s.label} Day</span> · Gym`;
 
   // Update week strip active state
   document.querySelectorAll('.day-pill').forEach((p,i) => {
@@ -1589,7 +1598,7 @@ window.selectDay = (day) => {
   // Clear current workout and prompt regeneration
   document.getElementById('exerciseList').innerHTML = `
     <div style="color:var(--muted);font-size:13px;padding:8px 0">
-      ${s.type === 'rest' ? '😴 Rest day — active recovery recommended.' : s.type === 'swim' ? '🏊 Swim day — hop in the pool!' : 'Tap "Generate Plan" to load ' + s.label + ' workout.'}
+      ${s.type === 'rest' ? '😴 Rest day — active recovery recommended.' : s.type === 'swim' ? '🏊 Swim day — hop in the pool!' : s.type === 'legs' ? '🦵 Legs day — tap "Generate Plan" to load workout.' : 'Tap "Generate Plan" to load ' + s.label + ' workout.'}
     </div>`;
 
   // Update generate button label
@@ -1607,6 +1616,7 @@ function renderTodayWorkout() {
   const metaEl = document.getElementById('todayMeta');
   if (s.type === 'rest') metaEl.textContent = 'Rest & recovery day';
   else if (s.type === 'swim') metaEl.innerHTML = '<span>Cardio + Full body</span> · 30–45 min';
+  else if (s.type === 'legs') metaEl.innerHTML = '<span>Legs Day</span> · Gym';
   else metaEl.innerHTML = `<span>${s.label} Day</span> · Gym`;
   const btn = document.getElementById('genWorkoutBtn');
   if (btn) btn.textContent = s.type === 'rest' ? 'Rest Day' : s.type === 'swim' ? 'Swim Day' : `Generate ${s.label}`;
@@ -1617,7 +1627,7 @@ function renderTodayWorkout() {
 function renderDayOverrideBtns(activeType) {
   const el = document.getElementById('dayOverrideBtns');
   if (!el) return;
-  el.innerHTML = ['push','pull','swim','rest'].map(t =>
+  el.innerHTML = ['push','pull','swim','legs','rest'].map(t =>
     `<button class="day-override-btn${activeType === t ? ' active' : ''}" onclick="setDayType('${t}')">${t.toUpperCase()}</button>`
   ).join('');
 }
