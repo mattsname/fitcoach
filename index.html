@@ -1212,7 +1212,12 @@ input[type="file"] { display: none; }
 
       <!-- Chart A: Diet → Strength -->
       <div class="analysis-section">
-        <div class="an-chart-title">Diet supporting strength?</div>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+          <div class="an-chart-title" style="margin-bottom:0">Diet supporting strength?</div>
+          <select id="strengthExerciseSelect" onchange="setStrengthExercise(this.value)" style="font-size:11px;padding:3px 6px;border:1px solid #444;border-radius:6px;background:#111;color:#aaa;cursor:pointer;font-family:'Barlow Condensed',sans-serif;max-width:140px">
+            <option value="">All exercises</option>
+          </select>
+        </div>
         <div style="position:relative;height:200px"><canvas id="chartDietStrength"></canvas></div>
         <div class="an-insight" id="insightDietStrength"></div>
       </div>
@@ -2834,6 +2839,7 @@ async function fetchAnalysisData() {
   // Build max lift per day across ALL weighted exercises (excludes jog/swim)
   const dailyMaxMap = {}; // date → max weight across all exercises
   const exerciseAllTimeMax = {}; // name → all-time max weight
+  const perExerciseDailyMax = {}; // name → { date: maxWeight }
   Object.entries(state.exerciseHistory).forEach(([name, hist]) => {
     if (/jog|treadmill/i.test(name) || name === 'Swimming') return;
     (hist.sessions || []).forEach(sess => {
@@ -2841,6 +2847,9 @@ async function fetchAnalysisData() {
       if (maxW > 0) {
         if (!dailyMaxMap[sess.date] || maxW > dailyMaxMap[sess.date]) dailyMaxMap[sess.date] = maxW;
         if (!exerciseAllTimeMax[name] || maxW > exerciseAllTimeMax[name]) exerciseAllTimeMax[name] = maxW;
+        if (!perExerciseDailyMax[name]) perExerciseDailyMax[name] = {};
+        if (!perExerciseDailyMax[name][sess.date] || maxW > perExerciseDailyMax[name][sess.date])
+          perExerciseDailyMax[name][sess.date] = maxW;
       }
     });
   });
@@ -2905,6 +2914,7 @@ async function fetchAnalysisData() {
     volume:    metrics.map(m => m.volume),
     dailyMaxLift: dates.map(d => dailyMaxMap[d] || null),
     exerciseAllTimeMax,
+    perExerciseDailyMax,
     calTarget, protTarget,
     swimSessions,
     dailyQuality,
@@ -2947,16 +2957,41 @@ function shortDate(dateStr) {
 }
 
 // ── Chart A: Diet → Strength ──────────────────────────────────
+let selectedStrengthExercise = '';
+
+window.setStrengthExercise = (name) => {
+  selectedStrengthExercise = name;
+  if (analysisDataCache) renderChartDietStrength(analysisDataCache);
+};
+
 function renderChartDietStrength(data) {
   destroyChart('chartDietStrength');
   const ctx = document.getElementById('chartDietStrength');
   if (!ctx) return;
+
+  // Populate exercise dropdown with exercises that have history data (rebuild if empty)
+  const sel = document.getElementById('strengthExerciseSelect');
+  if (sel && sel.options.length <= 1) {
+    const names = Object.keys(data.perExerciseDailyMax || {}).sort();
+    names.forEach(n => {
+      const opt = document.createElement('option');
+      opt.value = n; opt.textContent = n;
+      sel.appendChild(opt);
+    });
+  }
+  if (sel) sel.value = selectedStrengthExercise;
+
+  // Use selected exercise or fall back to all-exercise max
+  const exMap = selectedStrengthExercise ? data.perExerciseDailyMax?.[selectedStrengthExercise] : null;
+  const liftData = exMap ? data.dates.map(d => exMap[d] || null) : data.dailyMaxLift;
+  const liftLabel = selectedStrengthExercise || 'Max Lift (lbs)';
+
   const labels = data.dates.map(shortDate);
   analysisCharts['chartDietStrength'] = new Chart(ctx, {
     type: 'line',
     data: { labels, datasets: [
       makeDataset('Protein (g)', data.protein, '#97C459', 'yProt'),
-      makeDataset('Max Lift (lbs)', data.dailyMaxLift, '#D85A30', 'yLift', { borderDash: [4,2] }),
+      makeDataset(liftLabel, liftData, '#D85A30', 'yLift', { borderDash: [4,2] }),
     ]},
     options: { ...CHART_DEFAULTS, scales: {
       x: CHART_DEFAULTS.scales.x,
@@ -2991,7 +3026,10 @@ function renderChartDietStrength(data) {
       const protMsg = highProtDays > 0
         ? `Hit protein target (${data.protTarget}g+) on ${highProtDays} days. ${prDaysAfterHighProt > 0 ? prDaysAfterHighProt + ' followed by a lift PR.' : 'No lift PRs the following day.'}`
         : `Avg ${avgProt}g protein/day (target ${data.protTarget}g) — haven't hit target yet this month.`;
-      insightEl.textContent = topLifts ? `${protMsg} Top lifts: ${topLifts}.` : protMsg;
+      const liftCtx = selectedStrengthExercise
+        ? `${selectedStrengthExercise} max: ${data.exerciseAllTimeMax?.[selectedStrengthExercise] ?? '—'} lbs all-time.`
+        : (topLifts ? `Top lifts: ${topLifts}.` : '');
+      insightEl.textContent = liftCtx ? `${protMsg} ${liftCtx}` : protMsg;
     }
   }
 }
@@ -3321,9 +3359,23 @@ window.generateWeeklyAnalysis = async () => {
       .sort((a,b)=>b[1]-a[1]).slice(0,6)
       .map(([n,w])=>`${n}: ${w} lbs`).join(', ');
 
-    const context = `User: Matt, 43yo, Vancouver. Goal: 168 lbs, 2200 cal/day, 180g protein/day.\n\nLast 7 days data:\n${lines}\n\nMax lift per day (last 7): ${maxLift7.join(', ')||'—'} lbs\nAll-time exercise maxes: ${topLiftsCtx||'—'}`;
+    // Pre-compute weight summary so Gemini has explicit counts + dates instead of inferring from nulls
+    const weightEntries7 = last7.map((d,i) => ({ d, w: data.weight[data.dates.length - 7 + i] })).filter(e => e.w !== null);
+    let weightCtx;
+    if (weightEntries7.length === 0) {
+      weightCtx = 'Weight logged: 0 of 7 days — no weight data this week.';
+    } else if (weightEntries7.length <= 2) {
+      const dates = weightEntries7.map(e => `${e.d} (${e.w} lbs)`).join(', ');
+      weightCtx = `Weight logged: ${weightEntries7.length} of 7 days (${dates}). Limited data — daily logging needed for trend analysis.`;
+    } else {
+      const first = weightEntries7[0], last = weightEntries7[weightEntries7.length - 1];
+      const delta = (last.w - first.w).toFixed(1);
+      weightCtx = `Weight logged: ${weightEntries7.length} of 7 days. ${first.d}: ${first.w} lbs → ${last.d}: ${last.w} lbs (${parseFloat(delta) > 0 ? '+' : ''}${delta} lbs this week).`;
+    }
 
-    const sysPrompt = `Analyze this user's fitness data and provide 3-4 bullet point insights about strength trends, nutrition adherence, weight progress, and correlations. End with one actionable recommendation. Use ✅ for positives, ⚠️ for warnings, 💡 for recommendations. Be specific with numbers. Keep each bullet to 1-2 sentences.`;
+    const context = `User: Matt, 43yo, Vancouver. Goal: 168 lbs, 2200 cal/day, 180g protein/day.\n\nLast 7 days data:\n${lines}\n\n${weightCtx}\n\nMax lift per day (last 7): ${maxLift7.join(', ')||'—'} lbs\nAll-time exercise maxes: ${topLiftsCtx||'—'}`;
+
+    const sysPrompt = `Analyze this user's fitness data and provide 3-4 bullet point insights about strength trends, nutrition adherence, weight progress, and correlations. End with one actionable recommendation. Use ✅ for positives, ⚠️ for warnings, 💡 for recommendations. Be specific with numbers. Keep each bullet to 1-2 sentences. When reporting weight: always include exact count of days logged out of 7, specific dates and values if available, and what to do if data is sparse.`;
 
     const reply = await callGemini([{ role:'user', parts:[{text:context}] }], sysPrompt);
     summaryEl.textContent = reply;
