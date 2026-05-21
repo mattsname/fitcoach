@@ -867,6 +867,57 @@ input[type="file"] { display: none; }
 <!-- TOAST -->
 <div class="toast" id="toast"></div>
 
+<!-- EDIT WORKOUT MODAL -->
+<div class="modal-overlay" id="editWorkoutModal">
+  <div class="modal-box" style="max-width:480px">
+    <div class="modal-header">
+      <div class="modal-title" id="editWorkoutModalTitle">Edit Workout</div>
+      <button class="modal-close" onclick="closeModal('editWorkoutModal')">✕</button>
+    </div>
+    <div id="editExerciseList" style="max-height:60vh;overflow-y:auto"></div>
+    <div style="display:flex;gap:8px;margin-top:14px">
+      <button class="btn btn-primary" style="flex:1" onclick="saveEditWorkout()">💾 Save</button>
+      <button class="btn btn-ghost" style="color:var(--red);border-color:var(--red);white-space:nowrap" onclick="deleteEditWorkout()">🗑 Delete</button>
+    </div>
+  </div>
+</div>
+
+<!-- EDIT FOOD MODAL -->
+<div class="modal-overlay" id="editFoodModal">
+  <div class="modal-box" style="max-width:480px">
+    <div class="modal-header">
+      <div class="modal-title" id="editFoodModalTitle">Edit Food Log</div>
+      <button class="modal-close" onclick="closeModal('editFoodModal')">✕</button>
+    </div>
+    <div id="editFoodList" style="max-height:35vh;overflow-y:auto;margin-bottom:14px"></div>
+    <div style="border-top:1px solid var(--border);padding-top:14px">
+      <div style="font-size:11px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--muted);margin-bottom:10px">Add Food Entry</div>
+      <div class="form-group">
+        <input type="text" id="editFoodName" placeholder="Food name (e.g. Banana) or describe meal for Gemini">
+      </div>
+      <div style="display:flex;gap:8px;margin-bottom:10px">
+        <div style="flex:1">
+          <label class="form-label">Calories</label>
+          <input type="number" id="editFoodCal" placeholder="0">
+        </div>
+        <div style="flex:1">
+          <label class="form-label">Protein (g)</label>
+          <input type="number" id="editFoodProt" placeholder="0">
+        </div>
+        <div style="flex:1">
+          <label class="form-label">Time</label>
+          <input type="time" id="editFoodTime">
+        </div>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-ghost btn-sm" style="flex:1" onclick="addManualFoodItem()">+ Add Manually</button>
+        <button class="btn btn-ghost btn-sm" style="flex:1" onclick="analyseEditFood()">✨ Gemini</button>
+      </div>
+    </div>
+    <button class="btn btn-primary btn-full" style="margin-top:14px" onclick="saveEditFood()">💾 Save Food Log</button>
+  </div>
+</div>
+
 <!-- SETTINGS MODAL -->
 <div class="modal-overlay" id="settingsModal">
   <div class="modal-box">
@@ -1049,6 +1100,10 @@ input[type="file"] { display: none; }
         <input type="file" id="foodPhoto" accept="image/*" onchange="handleFoodPhoto(this)">
         <div class="attach-previews" id="foodPreview" style="margin-bottom:8px"></div>
         <textarea id="foodText" placeholder="Or describe what you ate... '2 scrambled eggs, toast and a coffee'" style="min-height:60px;margin-bottom:8px"></textarea>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+          <label style="font-size:11px;color:var(--muted);font-weight:600;letter-spacing:1px;text-transform:uppercase;white-space:nowrap">Meal time</label>
+          <input type="time" id="foodTimeInput" style="flex:1;max-width:130px">
+        </div>
         <button class="btn btn-primary btn-full" id="analyseBtn" onclick="analyseFood()">✨ Analyse with Gemini</button>
       </div>
 
@@ -1059,6 +1114,19 @@ input[type="file"] { display: none; }
       <div class="section-sep">This Week</div>
       <div class="card">
         <div id="weeklyNutritionList"><div style="color:var(--muted);font-size:13px;text-align:center;padding:8px 0">Loading...</div></div>
+      </div>
+
+      <div class="section-sep">Edit Past Data</div>
+      <div class="card" id="editPastSection">
+        <div class="form-group" style="margin-bottom:10px">
+          <label class="form-label">Select Date</label>
+          <input type="date" id="editPastDatePicker" style="width:100%" onchange="updateEditPastPreview()">
+        </div>
+        <div id="editPastPreview" style="font-size:13px;color:var(--muted);margin-bottom:12px;min-height:18px"></div>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-ghost btn-sm" style="flex:1" onclick="openEditWorkoutModal()">✏️ Edit Workout</button>
+          <button class="btn btn-ghost btn-sm" style="flex:1" onclick="openEditFoodModal()">✏️ Edit Food</button>
+        </div>
       </div>
 
     </div>
@@ -1291,6 +1359,8 @@ let state = {
   coachMemory: [],
   coachReplyCount: 0,
   exerciseHistory: {},
+  editWorkout: null,
+  editDate: null,
 };
 
 let weightChartInst = null, weightChartBigInst = null;
@@ -1563,6 +1633,8 @@ function launchApp() {
   loadDailyBriefing();
   addWelcomeMessage();
   loadWeekFood().then(() => renderWeeklyNutrition());
+  initEditPastDatePicker();
+  initFoodTimePicker();
 }
 
 // ── WEEK STRIP ───────────────────────────────────────────────
@@ -2280,7 +2352,8 @@ window.analyseFood = async () => {
     const data = JSON.parse(res.replace(/```json|```/g,'').trim());
     const today = todayStr();
     if (!state.foodLog[today]) state.foodLog[today] = [];
-    data.items.forEach(item => state.foodLog[today].push(item));
+    const foodTime = document.getElementById('foodTimeInput')?.value || new Date().toTimeString().slice(0,5);
+    data.items.forEach(item => state.foodLog[today].push({ ...item, time: foodTime }));
 
     console.log('[FitCoach] analyseFood: uid=', state.uid, 'items=', state.foodLog[today].length);
     if (state.uid) {
@@ -2319,7 +2392,7 @@ function renderFoodLog() {
     <div class="food-entry">
       <div class="food-emoji">${f.emoji||'🍽'}</div>
       <div class="food-info">
-        <div class="food-name">${f.name}</div>
+        <div class="food-name">${f.time ? `<span style="font-size:11px;color:var(--muted)">${fmt12h(f.time)} · </span>` : ''}${f.name}</div>
         <div class="food-macros">P: ${Math.round(f.protein||0)}g · C: ${Math.round(f.carbs||0)}g · F: ${Math.round(f.fat||0)}g</div>
       </div>
       <div class="food-cals">${f.calories}</div>
@@ -3475,6 +3548,389 @@ async function callGemini(messages, systemInstruction) {
   throw new Error('Gemini servers overloaded. Try again in a few minutes.');
 }
 
+// ── TIME HELPER ───────────────────────────────────────────────
+function fmt12h(t) {
+  if (!t) return '';
+  const [h, m] = t.split(':').map(Number);
+  return `${h % 12 || 12}:${String(m).padStart(2,'0')} ${h >= 12 ? 'PM' : 'AM'}`;
+}
+
+function initFoodTimePicker() {
+  const el = document.getElementById('foodTimeInput');
+  if (el && !el.value) el.value = new Date().toTimeString().slice(0,5);
+}
+
+// ── EDIT PAST DATA ────────────────────────────────────────────
+function initEditPastDatePicker() {
+  const picker = document.getElementById('editPastDatePicker');
+  if (!picker) return;
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+  picker.max = todayStr();
+  picker.value = yesterday.toISOString().slice(0,10);
+  updateEditPastPreview();
+}
+
+window.updateEditPastPreview = async () => {
+  const date = document.getElementById('editPastDatePicker')?.value;
+  const el = document.getElementById('editPastPreview');
+  if (!date || !el) return;
+  el.textContent = 'Loading...';
+  const label = new Date(date + 'T12:00:00').toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' });
+  // Food count
+  if (state.uid && !state.foodLog[date]) {
+    const doc = await fbGet(`users/${state.uid}/food/${date}`);
+    state.foodLog[date] = doc?.items || [];
+  }
+  const food = state.foodLog[date] || [];
+  const workoutEx = Object.values(state.exerciseHistory).filter(h => h.sessions?.some(s => s.date === date)).length;
+  const parts = [];
+  if (food.length > 0) parts.push(`${food.length} food items`);
+  if (workoutEx > 0) parts.push(`${workoutEx} exercises`);
+  el.textContent = `${label}: ${parts.length > 0 ? parts.join(' · ') : 'No data logged'}`;
+};
+
+window.jumpToEditDate = (date) => {
+  switchTab('log');
+  setTimeout(() => {
+    const picker = document.getElementById('editPastDatePicker');
+    if (picker) { picker.value = date; picker.max = todayStr(); updateEditPastPreview(); }
+    document.getElementById('editPastSection')?.scrollIntoView({ behavior:'smooth', block:'start' });
+  }, 120);
+};
+
+// ── EDIT PAST WORKOUT ─────────────────────────────────────────
+window.openEditWorkoutModal = async () => {
+  const date = document.getElementById('editPastDatePicker')?.value;
+  if (!date) { showToast('⚠️ Select a date first'); return; }
+  if (!state.uid) { showToast('⚠️ Sign in required'); return; }
+  state.editDate = date;
+  const label = new Date(date + 'T12:00:00').toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' });
+  document.getElementById('editWorkoutModalTitle').textContent = `Workout — ${label}`;
+  document.getElementById('editExerciseList').innerHTML = '<div style="color:var(--muted);font-size:13px;padding:8px 0">Loading...</div>';
+  openModal('editWorkoutModal');
+  const doc = await fbGet(`users/${state.uid}/workouts/${date}`);
+  state.editWorkout = doc?.exercises?.length > 0 ? doc.exercises : [];
+  renderEditExerciseList(state.editWorkout);
+};
+
+function captureEditWorkoutInputs() {
+  if (!state.editWorkout) return;
+  const list = document.getElementById('editExerciseList');
+  if (!list) return;
+  state.editWorkout.forEach((ex, ei) => {
+    const wInps = list.querySelectorAll(`[data-ex="${ei}"][data-type="weight"]`);
+    const rInps = list.querySelectorAll(`[data-ex="${ei}"][data-type="reps"]`);
+    if (wInps.length === 0) return;
+    ex._enteredSets = Array.from(wInps).map((inp, si) => ({
+      weight: inp.value !== '' ? inp.value : null,
+      reps:   rInps[si]?.value !== '' ? rInps[si].value : null,
+    }));
+  });
+}
+
+function buildEditAddExerciseUI() {
+  return `<div style="margin-top:12px;display:flex;gap:8px;align-items:center;">
+    <select id="addEditExerciseSelect" style="flex:1;background:#111;border:1px solid #333;border-radius:8px;color:#eee;padding:8px;font-size:14px;font-family:'Barlow Condensed',sans-serif;">
+      <option value="">— Add exercise —</option>
+      ${APPROVED_EXERCISES.map(e => `<option value="${e.name}">${e.name}</option>`).join('')}
+    </select>
+    <button onclick="addEditExercise()" style="background:#ff5c1a;border:none;border-radius:8px;color:#000;font-weight:700;padding:8px 14px;font-family:'Barlow Condensed',sans-serif;font-size:14px;cursor:pointer;">Add</button>
+  </div>`;
+}
+
+function renderEditExerciseList(exercises) {
+  const list = document.getElementById('editExerciseList');
+  if (!exercises || exercises.length === 0) {
+    list.innerHTML = `<div style="color:var(--muted);font-size:13px;padding:4px 0">No exercises yet — add one below.</div>${buildEditAddExerciseUI()}`;
+    return;
+  }
+  const cards = exercises.map((ex, ei) => {
+    const hist = state.exerciseHistory[ex.name];
+    const existingSession = hist?.sessions?.find(s => s.date === state.editDate);
+    const lastSession = hist?.sessions?.filter(s => s.date !== state.editDate).slice(-1)[0];
+    const isJog  = !!(ex.isJog);
+    const isSwim = !!(ex.isSwim || ex.name === 'Swimming');
+    let subtitleHTML = '';
+    if (lastSession) {
+      const dl = new Date(lastSession.date+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'});
+      if (isSwim) {
+        const tot = lastSession.sets.reduce((s,x)=>s+(parseInt(x.reps)||0),0);
+        subtitleHTML = `<div style="font-size:11px;color:var(--muted);margin-top:2px">Last: ${dl} · ${tot} lengths</div>`;
+      } else if (isJog) {
+        subtitleHTML = `<div style="font-size:11px;color:var(--muted);margin-top:2px">Last: ${dl} · ${lastSession.sets[0]?.weight} mph</div>`;
+      } else {
+        subtitleHTML = `<div style="font-size:11px;color:var(--muted);margin-top:2px">Last: ${dl} · ${lastSession.sets.map(s=>s.weight).join('/')} lbs</div>`;
+      }
+    }
+    const numSets = existingSession?.sets?.length || ex.sets || 3;
+    const sets = Array.from({length: numSets}, (_,si) => {
+      const entered = ex._enteredSets?.[si];
+      const sessSet = existingSession?.sets?.[si];
+      const lastW = entered?.weight ?? sessSet?.weight ?? ex.suggestedWeight ?? '';
+      const lastR = entered?.reps   ?? sessSet?.reps   ?? (isJog ? 5 : isSwim ? 20 : parseInt(ex.repsRange?.split('-')[0])||10);
+      if (isSwim) {
+        const strokes = ['Freestyle','Backstroke','Breaststroke','Butterfly','Mixed'];
+        const strokeVal = String(lastW) || 'Freestyle';
+        return `<div class="set-row">
+          <div class="set-label">Set ${si+1}</div>
+          <div class="set-input-group"><div class="set-inputs">
+            <div><div class="set-input-label">LENGTHS</div>
+              <input class="set-input" type="number" step="1" value="${lastR}" placeholder="20" data-ex="${ei}" data-set="${si}" data-type="reps" onchange="updateEditSwimTotal(${ei})">
+              <div class="set-input-unit">lengths</div></div>
+            <div><div class="set-input-label">STROKE</div>
+              <select class="set-input" data-ex="${ei}" data-set="${si}" data-type="weight" style="height:40px;font-size:12px;padding:0 6px;background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:var(--radius-sm)">
+                ${strokes.map(s=>`<option value="${s}"${strokeVal===s?' selected':''}>${s}</option>`).join('')}
+              </select></div>
+          </div></div>
+          <button class="set-done-btn" onclick="toggleSetDone(this)">✓</button>
+        </div>`;
+      }
+      const col1L = isJog?'DURATION':'REPS', col1U = isJog?'min':'reps';
+      const col2L = isJog?'SPEED (MPH)':'WEIGHT', col2U = isJog?'mph':(ex.unit||'lbs');
+      return `<div class="set-row">
+        <div class="set-label">Set ${si+1}</div>
+        <div class="set-input-group"><div class="set-inputs">
+          <div><div class="set-input-label">${col1L}</div>
+            <input class="set-input" type="number" step="${isJog?'0.1':'1'}" value="${lastR}" data-ex="${ei}" data-set="${si}" data-type="reps">
+            <div class="set-input-unit">${col1U}</div></div>
+          <div><div class="set-input-label">${col2L}</div>
+            <input class="set-input" type="number" step="${isJog?'0.1':'1'}" value="${lastW}" data-ex="${ei}" data-set="${si}" data-type="weight">
+            <div class="set-input-unit">${col2U}</div></div>
+        </div></div>
+        <button class="set-done-btn" onclick="toggleSetDone(this)">✓</button>
+      </div>`;
+    }).join('');
+    const swimTotal = isSwim ? (() => {
+      const tot = Array.from({length:numSets},(_,si)=>parseInt(ex._enteredSets?.[si]?.reps??existingSession?.sets?.[si]?.reps??20)||0).reduce((a,b)=>a+b,0);
+      return `<div id="edit-swim-total-${ei}" style="font-size:12px;color:#5ab4ff;padding:8px 0 4px;font-weight:600">Total: ${tot} lengths = ${tot*25}m</div>`;
+    })() : '';
+    return `<div class="exercise-row" id="edit-ex-${ei}">
+      <div class="exercise-header" onclick="toggleEditExercise(${ei})">
+        <div class="exercise-num">${ei+1}</div>
+        <div class="exercise-info">
+          <div class="exercise-name">${ex.name}</div>${subtitleHTML}
+        </div>
+        <div style="display:flex;align-items:center;gap:6px">
+          <button onclick="event.stopPropagation();deleteEditExercise(${ei})" style="background:transparent;border:1px solid #ff5c1a;border-radius:6px;color:#ff5c1a;font-size:14px;line-height:1;padding:3px 7px;cursor:pointer;" title="Remove">×</button>
+          <div class="exercise-chevron">▼</div>
+        </div>
+      </div>
+      <div class="exercise-detail">
+        ${ex.notes?`<div style="font-size:12px;color:var(--muted);padding:8px 0 10px;border-bottom:1px solid var(--border);margin-bottom:8px">💡 ${ex.notes}</div>`:''}
+        ${sets}${swimTotal}
+        <button onclick="addEditSet(${ei})" style="margin-top:8px;background:transparent;border:1px solid #333;border-radius:6px;color:var(--muted);font-size:12px;padding:5px 12px;cursor:pointer;">+ Add Set</button>
+      </div>
+    </div>`;
+  }).join('');
+  list.innerHTML = cards + buildEditAddExerciseUI();
+}
+
+window.toggleEditExercise = (idx) => document.getElementById(`edit-ex-${idx}`)?.classList.toggle('open');
+
+window.deleteEditExercise = (idx) => {
+  if (!state.editWorkout) return;
+  if (!confirm(`Remove ${state.editWorkout[idx].name}?`)) return;
+  captureEditWorkoutInputs();
+  state.editWorkout.splice(idx, 1);
+  renderEditExerciseList(state.editWorkout);
+};
+
+window.addEditSet = (ei) => {
+  captureEditWorkoutInputs();
+  if (state.editWorkout[ei]) state.editWorkout[ei].sets = (state.editWorkout[ei].sets || 3) + 1;
+  renderEditExerciseList(state.editWorkout);
+  document.getElementById(`edit-ex-${ei}`)?.classList.add('open');
+};
+
+window.addEditExercise = () => {
+  const select = document.getElementById('addEditExerciseSelect');
+  const name = select?.value;
+  if (!name) return;
+  if (!state.editWorkout) state.editWorkout = [];
+  captureEditWorkoutInputs();
+  const template = APPROVED_EXERCISES.find(e => e.name === name) || {};
+  const isSwimAdd = !!(template.isSwim || name === 'Swimming');
+  const lastSession = state.exerciseHistory[name]?.sessions?.slice(-1)[0];
+  state.editWorkout.push({
+    ...template, sets: template.sets || 3,
+    repsRange: isSwimAdd ? '20' : '8-12',
+    suggestedWeight: isSwimAdd ? 'Freestyle' : (lastSession?.sets?.[0]?.weight || 0),
+    unit: isSwimAdd ? 'stroke' : 'lbs', muscleGroup: template.type || '', notes: ''
+  });
+  select.value = '';
+  renderEditExerciseList(state.editWorkout);
+};
+
+window.updateEditSwimTotal = (ei) => {
+  const list = document.getElementById('editExerciseList');
+  if (!list) return;
+  const rInps = list.querySelectorAll(`[data-ex="${ei}"][data-type="reps"]`);
+  const total = Array.from(rInps).reduce((s,i)=>s+(parseInt(i.value)||0),0);
+  const el = document.getElementById(`edit-swim-total-${ei}`);
+  if (el) el.textContent = `Total: ${total} lengths = ${total*25}m`;
+};
+
+function recalcPB(sessions, isJog, isSwim) {
+  if (isSwim || !sessions.length) return {};
+  let bestVol = 0, bestMax = 0, volSess = null, maxSess = null;
+  sessions.forEach(sess => {
+    const vol = isJog
+      ? sess.sets.reduce((s,x)=>s+(parseFloat(x.weight)||0)*(x.reps||0)/60, 0)
+      : sess.sets.reduce((s,x)=>s+(parseFloat(x.weight)||0)*(x.reps||0), 0);
+    const max = Math.max(...sess.sets.map(x=>parseFloat(x.weight)||0));
+    if (vol > bestVol) { bestVol = vol; volSess = sess; }
+    if (max > bestMax) { bestMax = max; maxSess = sess; }
+  });
+  const pb = {};
+  if (volSess && bestVol > 0) pb.volume = { date: volSess.date, totalVolume: bestVol, sets: volSess.sets };
+  if (maxSess && bestMax > 0) pb.maxWeight = { date: maxSess.date, weight: bestMax, sets: maxSess.sets };
+  return pb;
+}
+
+window.saveEditWorkout = async () => {
+  if (!state.editWorkout || !state.editDate || !state.uid) return;
+  captureEditWorkoutInputs();
+  const date = state.editDate;
+  const list = document.getElementById('editExerciseList');
+  let saved = 0;
+  for (let ei = 0; ei < state.editWorkout.length; ei++) {
+    const ex = state.editWorkout[ei];
+    const isSwimEx = !!(ex.isSwim || ex.name === 'Swimming');
+    const weightInputs = list.querySelectorAll(`[data-ex="${ei}"][data-type="weight"]`);
+    const repInputs    = list.querySelectorAll(`[data-ex="${ei}"][data-type="reps"]`);
+    const sets = [];
+    if (isSwimEx) {
+      weightInputs.forEach((inp,si) => {
+        const stroke = inp.value || 'Freestyle';
+        const lengths = parseInt(repInputs[si]?.value);
+        if (!isNaN(lengths) && lengths > 0) sets.push({ set:si+1, weight:stroke, reps:lengths });
+      });
+    } else {
+      weightInputs.forEach((inp,si) => {
+        const weight = parseFloat(inp.value);
+        const reps = parseInt(repInputs[si]?.value);
+        if (!isNaN(weight) && weight > 0) sets.push({ set:si+1, weight, reps:isNaN(reps)?0:reps });
+      });
+    }
+    if (sets.length === 0) continue;
+    const path = `users/${state.uid}/exerciseHistory/${ex.name}`;
+    const existing = await fbGet(path) || {};
+    const sessions = (existing.sessions || []).filter(s => s.date !== date);
+    sessions.push({ date, sets });
+    const personalBest = recalcPB(sessions, !!(ex.isJog), isSwimEx);
+    await fbSet(path, { sessions, personalBest });
+    state.exerciseHistory[ex.name] = { sessions, personalBest };
+    saved++;
+  }
+  await fbSet(`users/${state.uid}/workouts/${date}`, { exercises: state.editWorkout, date });
+  closeModal('editWorkoutModal');
+  showToast(`✅ Workout saved for ${date} (${saved} exercises)`);
+  analysisDataCache = null;
+};
+
+window.deleteEditWorkout = async () => {
+  if (!state.editDate || !state.uid) return;
+  if (!confirm(`Delete entire workout for ${state.editDate}?`)) return;
+  for (const [name, hist] of Object.entries(state.exerciseHistory)) {
+    const sessions = (hist.sessions || []).filter(s => s.date !== state.editDate);
+    if (sessions.length !== (hist.sessions||[]).length) {
+      const isJog = /jog|treadmill/i.test(name), isSwim = name === 'Swimming';
+      const personalBest = recalcPB(sessions, isJog, isSwim);
+      await fbSet(`users/${state.uid}/exerciseHistory/${name}`, { sessions, personalBest });
+      state.exerciseHistory[name] = { sessions, personalBest };
+    }
+  }
+  await fbSet(`users/${state.uid}/workouts/${state.editDate}`, { exercises:[], date:state.editDate });
+  closeModal('editWorkoutModal');
+  showToast(`🗑 Workout deleted for ${state.editDate}`);
+  analysisDataCache = null;
+};
+
+// ── EDIT PAST FOOD ────────────────────────────────────────────
+let editFoodItems = [];
+
+window.openEditFoodModal = async () => {
+  const date = document.getElementById('editPastDatePicker')?.value;
+  if (!date) { showToast('⚠️ Select a date first'); return; }
+  if (!state.uid) { showToast('⚠️ Sign in required'); return; }
+  state.editDate = date;
+  const label = new Date(date+'T12:00:00').toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'});
+  document.getElementById('editFoodModalTitle').textContent = `Food — ${label}`;
+  document.getElementById('editFoodList').innerHTML = '<div style="color:var(--muted);font-size:13px">Loading...</div>';
+  openModal('editFoodModal');
+  if (state.uid && !state.foodLog[date]) {
+    const doc = await fbGet(`users/${state.uid}/food/${date}`);
+    state.foodLog[date] = doc?.items || [];
+  }
+  editFoodItems = (state.foodLog[date] || []).map(f => ({...f}));
+  document.getElementById('editFoodTime').value = new Date().toTimeString().slice(0,5);
+  renderEditFoodList();
+};
+
+function renderEditFoodList() {
+  const el = document.getElementById('editFoodList');
+  if (!el) return;
+  if (editFoodItems.length === 0) {
+    el.innerHTML = '<div style="color:var(--muted);font-size:13px;padding:4px 0">No food logged — add items below.</div>';
+    return;
+  }
+  el.innerHTML = editFoodItems.map((f,i) => `
+    <div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid #1e1e1e">
+      <div style="font-size:20px">${f.emoji||'🍽'}</div>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:13px;font-weight:600">${f.time?`<span style="font-size:11px;color:var(--muted)">${fmt12h(f.time)} · </span>`:''}${f.name}</div>
+        <div style="font-size:11px;color:var(--muted)">${f.calories} kcal · ${Math.round(f.protein||0)}g protein</div>
+      </div>
+      <button onclick="removeEditFoodItem(${i})" style="background:none;border:none;color:var(--muted);font-size:18px;cursor:pointer;padding:4px;flex-shrink:0">✕</button>
+    </div>`).join('');
+}
+
+window.removeEditFoodItem = (idx) => {
+  editFoodItems.splice(idx, 1);
+  renderEditFoodList();
+};
+
+window.addManualFoodItem = () => {
+  const name = document.getElementById('editFoodName').value.trim();
+  if (!name) { showToast('⚠️ Enter a food name'); return; }
+  const cal  = parseFloat(document.getElementById('editFoodCal').value) || 0;
+  const prot = parseFloat(document.getElementById('editFoodProt').value) || 0;
+  const time = document.getElementById('editFoodTime').value || '';
+  editFoodItems.push({ name, emoji:'🍽', calories:cal, protein:prot, carbs:0, fat:0, time });
+  document.getElementById('editFoodName').value = '';
+  document.getElementById('editFoodCal').value  = '';
+  document.getElementById('editFoodProt').value = '';
+  renderEditFoodList();
+};
+
+window.analyseEditFood = async () => {
+  const text = document.getElementById('editFoodName').value.trim();
+  if (!text) { showToast('⚠️ Describe a meal in the name field first'); return; }
+  const time = document.getElementById('editFoodTime').value || '';
+  const sys = `You are a precise nutritionist. Return ONLY a JSON object, no markdown:\n{"items":[{"name":"string","emoji":"string","calories":number,"protein":number,"carbs":number,"fat":number}]}`;
+  try {
+    showToast('⏳ Analysing...');
+    const res = await callGemini([{role:'user',parts:[{text}]}], sys);
+    const data = JSON.parse(res.replace(/```json|```/g,'').trim());
+    data.items.forEach(item => editFoodItems.push({...item, time}));
+    document.getElementById('editFoodName').value = '';
+    renderEditFoodList();
+  } catch(e) { showToast('❌ ' + e.message); }
+};
+
+window.saveEditFood = async () => {
+  if (!state.editDate || !state.uid) return;
+  const date = state.editDate;
+  state.foodLog[date] = editFoodItems;
+  await fbSet(`users/${state.uid}/food/${date}`, { items: editFoodItems, date });
+  closeModal('editFoodModal');
+  showToast(`✅ Food saved for ${date}`);
+  if (date === todayStr()) { renderFoodLog(); renderNutrition(); }
+  renderWeeklyNutrition();
+  analysisDataCache = null;
+};
+
 // ── SETTINGS ─────────────────────────────────────────────────
 window.saveSettings = async () => {
   const key = document.getElementById('settingsKey').value.trim();
@@ -3732,6 +4188,9 @@ window.selectCalDay = async (ds) => {
   }
 
   if (!any) html += `<div style="color:var(--muted);font-size:13px">No data recorded for this day.</div>`;
+  html += `<div style="margin-top:14px;padding-top:10px;border-top:1px solid #1e1e1e">
+    <button onclick="jumpToEditDate('${ds}')" style="width:100%;background:transparent;border:1px solid var(--border);border-radius:8px;color:var(--muted);font-size:13px;padding:8px 16px;cursor:pointer;font-family:'Barlow Condensed',sans-serif;">✏️ Edit This Day</button>
+  </div>`;
   content.innerHTML = html;
   detail.scrollIntoView({ behavior:'smooth', block:'nearest' });
 };
