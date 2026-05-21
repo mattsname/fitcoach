@@ -1231,6 +1231,19 @@ input[type="file"] { display: none; }
         <div class="an-insight" id="insightRecovery"></div>
       </div>
 
+      <!-- Chart D: Swimming Performance (shown only when swim data exists) -->
+      <div class="analysis-section" id="swimChartSection" style="display:none">
+        <div class="an-chart-title">Swimming performance</div>
+        <div style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap">
+          <button id="swimMetric_perLap" onclick="setSwimMetric('perLap')" style="font-size:11px;padding:3px 10px;border:1px solid #444;border-radius:6px;background:transparent;color:#eee;cursor:pointer;opacity:0.5;font-family:'Barlow Condensed',sans-serif">Per lap</button>
+          <button id="swimMetric_per100m" onclick="setSwimMetric('per100m')" style="font-size:11px;padding:3px 10px;border:1px solid #444;border-radius:6px;background:transparent;color:#eee;cursor:pointer;opacity:1;font-family:'Barlow Condensed',sans-serif">Per 100m</button>
+          <button id="swimMetric_per500m" onclick="setSwimMetric('per500m')" style="font-size:11px;padding:3px 10px;border:1px solid #444;border-radius:6px;background:transparent;color:#eee;cursor:pointer;opacity:0.5;font-family:'Barlow Condensed',sans-serif">Per 500m</button>
+          <button id="swimMetric_distance" onclick="setSwimMetric('distance')" style="font-size:11px;padding:3px 10px;border:1px solid #444;border-radius:6px;background:transparent;color:#eee;cursor:pointer;opacity:0.5;font-family:'Barlow Condensed',sans-serif">Distance</button>
+        </div>
+        <div style="position:relative;height:200px"><canvas id="chartSwim"></canvas></div>
+        <div class="an-insight" id="insightSwim"></div>
+      </div>
+
       <!-- Custom Explorer -->
       <div class="analysis-section">
         <button class="an-explorer-toggle" onclick="toggleExplorer()" id="explorerToggleBtn">▶ Explore custom correlations</button>
@@ -1755,6 +1768,28 @@ window.updateSwimTotal = (ei) => {
   const total = Array.from(rInps).reduce((sum, inp) => sum + (parseInt(inp.value) || 0), 0);
   const el = document.getElementById(`swim-total-${ei}`);
   if (el) el.textContent = `Total: ${total} lengths = ${total * 25}m`;
+  updateSwimPace(ei, total);
+};
+
+window.updateSwimPace = (ei, knownTotal) => {
+  const list = document.getElementById('exerciseList');
+  if (!list) return;
+  const paceEl = document.getElementById(`swim-pace-${ei}`);
+  if (!paceEl) return;
+  const timeInp = list.querySelector(`[data-ex="${ei}"][data-type="swimtime"]`);
+  const secs = parseSwimTime(timeInp?.value);
+  let total = knownTotal;
+  if (total === undefined) {
+    const rInps = list.querySelectorAll(`[data-ex="${ei}"][data-type="reps"]`);
+    total = Array.from(rInps).reduce((s, i) => s + (parseInt(i.value) || 0), 0);
+    const el = document.getElementById(`swim-total-${ei}`);
+    if (el) el.textContent = `Total: ${total} lengths = ${total * 25}m`;
+  }
+  if (!secs || !total) { paceEl.textContent = ''; return; }
+  const perLap = secs / total;
+  const per100m = (secs / (total * 25)) * 100;
+  const per500m = per100m * 5;
+  paceEl.textContent = `${perLap.toFixed(1)} sec/lap · ${fmtSwimTime(per100m)}/100m · ${fmtSwimTime(per500m)}/500m`;
 };
 
 // ── GENERATE WORKOUT ─────────────────────────────────────────
@@ -1856,7 +1891,8 @@ function renderExerciseList(exercises) {
         subtitleHTML += `<div style="font-size:11px;color:var(--muted);margin-top:2px">Last: ${dateLabel} · ${speed} mph · ${dur} min</div>`;
       } else if (isSwim) {
         const totalLengths = lastSession.sets.reduce((sum, s) => sum + (parseInt(s.reps) || 0), 0);
-        subtitleHTML += `<div style="font-size:11px;color:var(--muted);margin-top:2px">Last: ${dateLabel} · ${totalLengths} lengths · ${totalLengths * 25}m</div>`;
+        const swimTimeStr = lastSession.sessionTime > 0 ? ` · ${fmtSwimTime(lastSession.sessionTime)}` : '';
+        subtitleHTML += `<div style="font-size:11px;color:var(--muted);margin-top:2px">Last: ${dateLabel} · ${totalLengths} lengths · ${totalLengths * 25}m${swimTimeStr}</div>`;
       } else {
         const weights = lastSession.sets.map(s => s.weight).join('/');
         subtitleHTML += `<div style="font-size:11px;color:var(--muted);margin-top:2px">Last: ${dateLabel} · ${weights} lbs</div>`;
@@ -1867,6 +1903,32 @@ function renderExerciseList(exercises) {
     // PB display intentionally omitted here — shown in Progress tab only
 
     const numSets = ex.sets || 3;
+
+    const swimSessionTime = isSwim ? (() => {
+      const storedSecs = ex.sessionTime || lastSession?.sessionTime || 0;
+      const initialTime = storedSecs > 0 ? fmtSwimTime(storedSecs) : '';
+      const initialTotal = Array.from({length: numSets}, (_,si) => {
+        const entered = ex._enteredSets?.[si];
+        return parseInt(entered?.reps ?? lastSession?.sets?.[si]?.reps ?? 20) || 0;
+      }).reduce((a,b) => a+b, 0);
+      let initialPace = '';
+      if (storedSecs > 0 && initialTotal > 0) {
+        const per100m = (storedSecs / (initialTotal * 25)) * 100;
+        const perLap = storedSecs / initialTotal;
+        initialPace = `${perLap.toFixed(1)} sec/lap · ${fmtSwimTime(per100m)}/100m · ${fmtSwimTime(per100m * 5)}/500m`;
+      }
+      return `<div style="display:flex;align-items:flex-start;gap:10px;padding:8px 0 10px;border-bottom:1px solid var(--border);margin-bottom:6px">
+        <div>
+          <div style="font-size:10px;color:var(--muted);font-weight:600;letter-spacing:0.5px;margin-bottom:4px">SESSION TIME</div>
+          <input class="set-input" type="text" style="width:66px;text-align:center" placeholder="M:SS" value="${initialTime}" data-ex="${ei}" data-type="swimtime" onchange="updateSwimPace(${ei})">
+        </div>
+        <div style="flex:1;padding-top:22px">
+          <div id="swim-total-${ei}" style="font-size:12px;color:#5ab4ff;font-weight:600">Total: ${initialTotal} lengths = ${initialTotal * 25}m</div>
+          <div id="swim-pace-${ei}" style="font-size:11px;color:var(--muted);margin-top:2px">${initialPace}</div>
+        </div>
+      </div>`;
+    })() : '';
+
     const sets = Array.from({length: numSets}, (_,si) => {
       const entered = ex._enteredSets?.[si];
       const lastW = entered?.weight ?? lastSession?.sets?.[si]?.weight ?? ex.suggestedWeight ?? '';
@@ -1920,15 +1982,6 @@ function renderExerciseList(exercises) {
       </div>`;
     }).join('');
 
-    const swimTotalInitial = (() => {
-      if (!isSwim) return '';
-      const total = Array.from({length: numSets}, (_,si) => {
-        const entered = ex._enteredSets?.[si];
-        return parseInt(entered?.reps ?? lastSession?.sets?.[si]?.reps ?? 20) || 0;
-      }).reduce((a,b) => a+b, 0);
-      return `<div id="swim-total-${ei}" style="font-size:12px;color:#5ab4ff;padding:8px 0 4px;font-weight:600">Total: ${total} lengths = ${total * 25}m</div>`;
-    })();
-
     return `<div class="exercise-row" id="ex-${ei}">
       <div class="exercise-header" onclick="toggleExercise(${ei})">
         <div class="exercise-num">${ei+1}</div>
@@ -1943,8 +1996,8 @@ function renderExerciseList(exercises) {
       </div>
       <div class="exercise-detail">
         ${ex.notes ? `<div style="font-size:12px;color:var(--muted);padding:8px 0 10px;border-bottom:1px solid var(--border);margin-bottom:8px">💡 ${ex.notes}</div>` : ''}
+        ${swimSessionTime}
         ${sets}
-        ${swimTotalInitial}
         <button class="add-set-btn" onclick="addSet(${ei})" style="margin-top:8px;background:transparent;border:1px solid #333;border-radius:6px;color:var(--muted);font-size:12px;padding:5px 12px;cursor:pointer;font-family:'Barlow Condensed',sans-serif;">+ Add Set</button>
       </div>
     </div>`;
@@ -2005,6 +2058,8 @@ function captureWorkoutInputs() {
       reps:   rInps[si]?.value !== '' ? rInps[si].value : null,
     }));
     ex.sets = wInps.length; // keep set count in sync with actual rendered rows
+    const tInp = list.querySelector(`[data-ex="${ei}"][data-type="swimtime"]`);
+    if (tInp) ex.sessionTime = parseSwimTime(tInp.value) || 0;
   });
 }
 
@@ -2085,10 +2140,16 @@ window.saveWorkout = async () => {
     }
     if (sets.length === 0) continue;
 
+    // Capture session time for swimming
+    const swimTimeInp = isSwimEx ? document.querySelector(`[data-ex="${ei}"][data-type="swimtime"]`) : null;
+    const sessionTime = swimTimeInp ? (parseSwimTime(swimTimeInp.value) || 0) : 0;
+
     const path = `users/${state.uid}/exerciseHistory/${ex.name}`;
     const existing = await fbGet(path) || {};
     const sessions = (existing.sessions || []).filter(s => s.date !== today);
-    sessions.push({ date: today, sets });
+    const newSession = { date: today, sets };
+    if (sessionTime > 0) newSession.sessionTime = sessionTime;
+    sessions.push(newSession);
 
     // Calculate today's stats — jog uses speed×duration=distance, others use weight×reps=volume
     const isJog = !!(ex.isJog);
@@ -2763,6 +2824,23 @@ async function fetchAnalysisData() {
     });
   });
 
+  // Build swim session data
+  const swimSessions = [];
+  const swimHist = state.exerciseHistory['Swimming'];
+  (swimHist?.sessions || []).forEach(sess => {
+    const totalLengths = (sess.sets || []).reduce((s,x) => s + (parseInt(x.reps)||0), 0);
+    if (!totalLengths) return;
+    const entry = { date: sess.date, totalLengths, totalMeters: totalLengths * 25 };
+    if (sess.sessionTime > 0) {
+      entry.sessionTime = sess.sessionTime;
+      entry.perLap = sess.sessionTime / totalLengths;
+      entry.per100m = (sess.sessionTime / (totalLengths * 25)) * 100;
+      entry.per500m = entry.per100m * 5;
+    }
+    swimSessions.push(entry);
+  });
+  swimSessions.sort((a,b) => a.date.localeCompare(b.date));
+
   const data = {
     dates,
     calories:  metrics.map(m => m.cals > 0 ? m.cals : null),
@@ -2773,6 +2851,7 @@ async function fetchAnalysisData() {
     dailyMaxLift: dates.map(d => dailyMaxMap[d] || null),
     exerciseAllTimeMax,
     calTarget, protTarget,
+    swimSessions,
   };
   analysisDataCache = data;
   return data;
@@ -2941,6 +3020,78 @@ function renderChartRecovery(data) {
   }
 }
 
+// ── Chart D: Swimming Performance ────────────────────────────
+let swimChartMetric = 'per100m';
+
+window.setSwimMetric = (metric) => {
+  swimChartMetric = metric;
+  ['perLap','per100m','per500m','distance'].forEach(m => {
+    const btn = document.getElementById(`swimMetric_${m}`);
+    if (btn) btn.style.opacity = m === metric ? '1' : '0.5';
+  });
+  if (analysisDataCache) renderChartSwim(analysisDataCache);
+};
+
+function renderChartSwim(data) {
+  const section = document.getElementById('swimChartSection');
+  if (!section) return;
+  const sessions = (data.swimSessions || []).filter(s => swimChartMetric === 'distance' ? true : s.perLap != null);
+  if (sessions.length === 0) { section.style.display = 'none'; return; }
+  section.style.display = 'block';
+
+  // Highlight active metric button
+  ['perLap','per100m','per500m','distance'].forEach(m => {
+    const btn = document.getElementById(`swimMetric_${m}`);
+    if (btn) btn.style.opacity = m === swimChartMetric ? '1' : '0.5';
+  });
+
+  destroyChart('chartSwim');
+  const ctx = document.getElementById('chartSwim');
+  if (!ctx) return;
+
+  const labels = sessions.map(s => shortDate(s.date));
+  let chartData, yLabel, color;
+  if (swimChartMetric === 'perLap') {
+    chartData = sessions.map(s => s.perLap != null ? parseFloat(s.perLap.toFixed(1)) : null);
+    yLabel = 'sec/lap'; color = '#5ab4ff';
+  } else if (swimChartMetric === 'per100m') {
+    chartData = sessions.map(s => s.per100m != null ? parseFloat(s.per100m.toFixed(1)) : null);
+    yLabel = 'sec/100m'; color = '#5ab4ff';
+  } else if (swimChartMetric === 'per500m') {
+    chartData = sessions.map(s => s.per500m != null ? parseFloat(s.per500m.toFixed(1)) : null);
+    yLabel = 'sec/500m'; color = '#5ab4ff';
+  } else {
+    chartData = sessions.map(s => s.totalMeters);
+    yLabel = 'meters'; color = '#3dffc0';
+  }
+
+  analysisCharts['chartSwim'] = new Chart(ctx, {
+    type: 'line',
+    data: { labels, datasets: [makeDataset(yLabel, chartData, color, 'ySwim')] },
+    options: { ...CHART_DEFAULTS, scales: {
+      x: CHART_DEFAULTS.scales.x,
+      ySwim: makeYAxis('ySwim', color, 'left', yLabel),
+    }}
+  });
+
+  // Insight
+  const insightEl = document.getElementById('insightSwim');
+  if (insightEl) {
+    const withPace = sessions.filter(s => s.perLap != null);
+    const allSessions = data.swimSessions || [];
+    const totalDist = allSessions.reduce((s,x) => s + x.totalMeters, 0);
+    let insight = `${allSessions.length} swim session${allSessions.length !== 1 ? 's' : ''} logged · ${(totalDist/1000).toFixed(1)} km total`;
+    if (withPace.length >= 2) {
+      const first = withPace[0].per100m, last = withPace[withPace.length-1].per100m;
+      const delta = last - first;
+      insight += ` · Pace ${delta < 0 ? '↑ improved' : '↓ slower'} ${Math.abs(delta).toFixed(1)} sec/100m vs first timed session`;
+    } else if (withPace.length === 0) {
+      insight += ' · Add session time to track pace';
+    }
+    insightEl.textContent = insight;
+  }
+}
+
 // ── Custom Explorer ───────────────────────────────────────────
 window.toggleExplorer = () => {
   const content = document.getElementById('explorerContent');
@@ -3068,6 +3219,7 @@ async function initAnalysisDashboard() {
   renderChartDietStrength(data);
   renderChartCutQuality(data);
   renderChartRecovery(data);
+  renderChartSwim(data);
   // Auto-generate Gemini summary on first visit
   if (!analysisInitialized) {
     analysisInitialized = true;
@@ -3548,7 +3700,26 @@ async function callGemini(messages, systemInstruction) {
   throw new Error('Gemini servers overloaded. Try again in a few minutes.');
 }
 
-// ── TIME HELPER ───────────────────────────────────────────────
+// ── TIME HELPERS ──────────────────────────────────────────────
+function parseSwimTime(str) {
+  if (!str) return 0;
+  const s = String(str).trim();
+  const parts = s.split(':');
+  if (parts.length === 2) {
+    const m = parseInt(parts[0]) || 0;
+    const sec = parseFloat(parts[1]) || 0;
+    return m * 60 + sec;
+  }
+  return parseFloat(s) || 0;
+}
+
+function fmtSwimTime(secs) {
+  if (!secs || secs <= 0) return '';
+  const m = Math.floor(secs / 60);
+  const s = Math.round(secs % 60);
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+
 function fmt12h(t) {
   if (!t) return '';
   const [h, m] = t.split(':').map(Number);
@@ -3626,6 +3797,8 @@ function captureEditWorkoutInputs() {
       weight: inp.value !== '' ? inp.value : null,
       reps:   rInps[si]?.value !== '' ? rInps[si].value : null,
     }));
+    const tInp = list.querySelector(`[data-ex="${ei}"][data-type="swimtime"]`);
+    if (tInp) ex.sessionTime = parseSwimTime(tInp.value) || 0;
   });
 }
 
@@ -3656,7 +3829,8 @@ function renderEditExerciseList(exercises) {
       const dl = new Date(lastSession.date+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'});
       if (isSwim) {
         const tot = lastSession.sets.reduce((s,x)=>s+(parseInt(x.reps)||0),0);
-        subtitleHTML = `<div style="font-size:11px;color:var(--muted);margin-top:2px">Last: ${dl} · ${tot} lengths</div>`;
+        const editSwimTimeStr = lastSession.sessionTime > 0 ? ` · ${fmtSwimTime(lastSession.sessionTime)}` : '';
+        subtitleHTML = `<div style="font-size:11px;color:var(--muted);margin-top:2px">Last: ${dl} · ${tot} lengths${editSwimTimeStr}</div>`;
       } else if (isJog) {
         subtitleHTML = `<div style="font-size:11px;color:var(--muted);margin-top:2px">Last: ${dl} · ${lastSession.sets[0]?.weight} mph</div>`;
       } else {
@@ -3664,6 +3838,29 @@ function renderEditExerciseList(exercises) {
       }
     }
     const numSets = existingSession?.sets?.length || ex.sets || 3;
+
+    const editSwimSessionBlock = isSwim ? (() => {
+      const storedSecs = ex.sessionTime || existingSession?.sessionTime || 0;
+      const initialTime = storedSecs > 0 ? fmtSwimTime(storedSecs) : '';
+      const initialTotal = Array.from({length:numSets},(_,si)=>parseInt(ex._enteredSets?.[si]?.reps??existingSession?.sets?.[si]?.reps??20)||0).reduce((a,b)=>a+b,0);
+      let initialPace = '';
+      if (storedSecs > 0 && initialTotal > 0) {
+        const per100m = (storedSecs / (initialTotal * 25)) * 100;
+        const perLap = storedSecs / initialTotal;
+        initialPace = `${perLap.toFixed(1)} sec/lap · ${fmtSwimTime(per100m)}/100m · ${fmtSwimTime(per100m * 5)}/500m`;
+      }
+      return `<div style="display:flex;align-items:flex-start;gap:10px;padding:8px 0 10px;border-bottom:1px solid var(--border);margin-bottom:6px">
+        <div>
+          <div style="font-size:10px;color:var(--muted);font-weight:600;letter-spacing:0.5px;margin-bottom:4px">SESSION TIME</div>
+          <input class="set-input" type="text" style="width:66px;text-align:center" placeholder="M:SS" value="${initialTime}" data-ex="${ei}" data-type="swimtime" onchange="updateEditSwimTotal(${ei})">
+        </div>
+        <div style="flex:1;padding-top:22px">
+          <div id="edit-swim-total-${ei}" style="font-size:12px;color:#5ab4ff;font-weight:600">Total: ${initialTotal} lengths = ${initialTotal * 25}m</div>
+          <div id="edit-swim-pace-${ei}" style="font-size:11px;color:var(--muted);margin-top:2px">${initialPace}</div>
+        </div>
+      </div>`;
+    })() : '';
+
     const sets = Array.from({length: numSets}, (_,si) => {
       const entered = ex._enteredSets?.[si];
       const sessSet = existingSession?.sets?.[si];
@@ -3701,10 +3898,6 @@ function renderEditExerciseList(exercises) {
         <button class="set-done-btn" onclick="toggleSetDone(this)">✓</button>
       </div>`;
     }).join('');
-    const swimTotal = isSwim ? (() => {
-      const tot = Array.from({length:numSets},(_,si)=>parseInt(ex._enteredSets?.[si]?.reps??existingSession?.sets?.[si]?.reps??20)||0).reduce((a,b)=>a+b,0);
-      return `<div id="edit-swim-total-${ei}" style="font-size:12px;color:#5ab4ff;padding:8px 0 4px;font-weight:600">Total: ${tot} lengths = ${tot*25}m</div>`;
-    })() : '';
     return `<div class="exercise-row" id="edit-ex-${ei}">
       <div class="exercise-header" onclick="toggleEditExercise(${ei})">
         <div class="exercise-num">${ei+1}</div>
@@ -3718,7 +3911,8 @@ function renderEditExerciseList(exercises) {
       </div>
       <div class="exercise-detail">
         ${ex.notes?`<div style="font-size:12px;color:var(--muted);padding:8px 0 10px;border-bottom:1px solid var(--border);margin-bottom:8px">💡 ${ex.notes}</div>`:''}
-        ${sets}${swimTotal}
+        ${editSwimSessionBlock}
+        ${sets}
         <button onclick="addEditSet(${ei})" style="margin-top:8px;background:transparent;border:1px solid #333;border-radius:6px;color:var(--muted);font-size:12px;padding:5px 12px;cursor:pointer;">+ Add Set</button>
       </div>
     </div>`;
@@ -3769,6 +3963,14 @@ window.updateEditSwimTotal = (ei) => {
   const total = Array.from(rInps).reduce((s,i)=>s+(parseInt(i.value)||0),0);
   const el = document.getElementById(`edit-swim-total-${ei}`);
   if (el) el.textContent = `Total: ${total} lengths = ${total*25}m`;
+  const paceEl = document.getElementById(`edit-swim-pace-${ei}`);
+  if (!paceEl) return;
+  const timeInp = list.querySelector(`[data-ex="${ei}"][data-type="swimtime"]`);
+  const secs = parseSwimTime(timeInp?.value);
+  if (!secs || !total) { paceEl.textContent = ''; return; }
+  const perLap = secs / total;
+  const per100m = (secs / (total * 25)) * 100;
+  paceEl.textContent = `${perLap.toFixed(1)} sec/lap · ${fmtSwimTime(per100m)}/100m · ${fmtSwimTime(per100m * 5)}/500m`;
 };
 
 function recalcPB(sessions, isJog, isSwim) {
@@ -3814,10 +4016,14 @@ window.saveEditWorkout = async () => {
       });
     }
     if (sets.length === 0) continue;
+    const swimTimeInpEdit = isSwimEx ? list.querySelector(`[data-ex="${ei}"][data-type="swimtime"]`) : null;
+    const sessionTimeEdit = swimTimeInpEdit ? (parseSwimTime(swimTimeInpEdit.value) || 0) : 0;
     const path = `users/${state.uid}/exerciseHistory/${ex.name}`;
     const existing = await fbGet(path) || {};
     const sessions = (existing.sessions || []).filter(s => s.date !== date);
-    sessions.push({ date, sets });
+    const editSession = { date, sets };
+    if (sessionTimeEdit > 0) editSession.sessionTime = sessionTimeEdit;
+    sessions.push(editSession);
     const personalBest = recalcPB(sessions, !!(ex.isJog), isSwimEx);
     await fbSet(path, { sessions, personalBest });
     state.exerciseHistory[ex.name] = { sessions, personalBest };
@@ -4179,9 +4385,17 @@ window.selectCalDay = async (ds) => {
       const isVolPB = pb?.volume?.date === ds;
       const isMaxPB = pb?.maxWeight?.date === ds;
       const badge = (isVolPB || isMaxPB) ? ` <span style="color:#ff5c1a;font-size:11px;font-weight:700">🏆 PB</span>` : '';
+      const isSwimSession = name === 'Swimming';
+      let sessionExtra = '';
+      if (isSwimSession && session.sessionTime > 0) {
+        const totalLengths = session.sets.reduce((s,x)=>s+(parseInt(x.reps)||0),0);
+        const per100m = (session.sessionTime / (totalLengths * 25)) * 100;
+        sessionExtra = `<div style="font-size:12px;color:#5ab4ff;margin-top:2px">⏱ ${fmtSwimTime(session.sessionTime)} · ${fmtSwimTime(per100m)}/100m</div>`;
+      }
       html += `<div style="margin-bottom:6px;padding:8px 10px;background:#1a1a1a;border-radius:8px">
         <div style="font-size:14px;font-weight:700;margin-bottom:4px">${name}${badge}</div>
         ${session.sets.map(s=>`<div style="font-size:12px;color:var(--muted)">${formatSetSummary(name, s)}</div>`).join('')}
+        ${sessionExtra}
       </div>`;
     });
     html += `</div>`;
@@ -4267,7 +4481,7 @@ window.lookupExerciseHistory = () => {
     let summary;
     if (isSwimEx) {
       const totalLengths = s.sets.reduce((sum,set)=>sum+(set.reps||0),0);
-      summary = `${totalLengths} lengths · ${totalLengths*25}m`;
+      summary = `${totalLengths} lengths · ${totalLengths*25}m` + (s.sessionTime > 0 ? ` · ${fmtSwimTime(s.sessionTime)}` : '');
     } else if (isJogEx) {
       const dur = s.sets[0]?.reps || 0;
       const spd = s.sets[0]?.weight || 0;
@@ -4277,12 +4491,22 @@ window.lookupExerciseHistory = () => {
       const maxW = Math.max(...s.sets.map(set=>parseFloat(set.weight)||0));
       summary = `Vol ${vol.toLocaleString()} · Max ${maxW} lbs`;
     }
+    let paceRow = '';
+    if (isSwimEx && s.sessionTime > 0) {
+      const totalLengths = s.sets.reduce((sum,set)=>sum+(set.reps||0),0);
+      if (totalLengths > 0) {
+        const per100m = (s.sessionTime / (totalLengths * 25)) * 100;
+        const perLap = s.sessionTime / totalLengths;
+        paceRow = `<div style="font-size:11px;color:#5ab4ff;margin-top:3px">${perLap.toFixed(1)} sec/lap · ${fmtSwimTime(per100m)}/100m · ${fmtSwimTime(per100m * 5)}/500m</div>`;
+      }
+    }
     return `<div style="padding:8px 10px;background:#1a1a1a;border-radius:8px;margin-bottom:6px">
       <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">
         <span style="font-size:13px;font-weight:700">${d}</span>
         <span style="font-size:11px;color:var(--muted)">${summary}</span>
       </div>
       ${s.sets.map(set=>`<span style="font-size:12px;color:var(--muted);margin-right:10px">${formatSetSummary(name, set)}</span>`).join('')}
+      ${paceRow}
     </div>`;
   }).join('');
 
