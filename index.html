@@ -1171,8 +1171,8 @@ input[type="file"] { display: none; }
             <label class="an-cb-label"><input type="checkbox" id="chkCalories" onchange="updateExplorer()"><span class="an-cb-dot" style="background:#4A90D9"></span>Calories</label>
             <label class="an-cb-label"><input type="checkbox" id="chkProtein" checked onchange="updateExplorer()"><span class="an-cb-dot" style="background:#97C459"></span>Protein</label>
             <label class="an-cb-label"><input type="checkbox" id="chkWeight" onchange="updateExplorer()"><span class="an-cb-dot" style="background:#EF9F27"></span>Weight</label>
-            <label class="an-cb-label"><input type="checkbox" id="chkBench" onchange="updateExplorer()"><span class="an-cb-dot" style="background:#D85A30"></span>Bench max</label>
-            <label class="an-cb-label"><input type="checkbox" id="chkSquat" onchange="updateExplorer()"><span class="an-cb-dot" style="background:#E07090"></span>Squat max</label>
+            <label class="an-cb-label"><input type="checkbox" id="chkBench" onchange="updateExplorer()"><span class="an-cb-dot" style="background:#D85A30"></span>Max lift</label>
+            <label class="an-cb-label"><input type="checkbox" id="chkSquat" onchange="updateExplorer()"><span class="an-cb-dot" style="background:#E07090"></span>Volume</label>
             <label class="an-cb-label"><input type="checkbox" id="chkVolume" onchange="updateExplorer()"><span class="an-cb-dot" style="background:#7F77DD"></span>Volume</label>
           </div>
           <div style="position:relative;height:260px;margin-top:12px"><canvas id="chartExplorer"></canvas></div>
@@ -2676,20 +2676,19 @@ async function fetchAnalysisData() {
     return { date: d, cals, prot, deficit, weight, volume: volume > 0 ? volume : null };
   });
 
-  // Build bench/squat max per day from exerciseHistory sessions
-  const benchHistory = state.exerciseHistory['Bench Press']?.sessions || [];
-  const squatHistory = state.exerciseHistory['Squat']?.sessions || [];
-
-  const buildMaxByDate = (sessions) => {
-    const map = {};
-    sessions.forEach(sess => {
+  // Build max lift per day across ALL weighted exercises (excludes jog/swim)
+  const dailyMaxMap = {}; // date → max weight across all exercises
+  const exerciseAllTimeMax = {}; // name → all-time max weight
+  Object.entries(state.exerciseHistory).forEach(([name, hist]) => {
+    if (/jog|treadmill/i.test(name) || name === 'Swimming') return;
+    (hist.sessions || []).forEach(sess => {
       const maxW = Math.max(...(sess.sets||[]).map(s => parseFloat(s.weight)||0));
-      if (maxW > 0) map[sess.date] = maxW;
+      if (maxW > 0) {
+        if (!dailyMaxMap[sess.date] || maxW > dailyMaxMap[sess.date]) dailyMaxMap[sess.date] = maxW;
+        if (!exerciseAllTimeMax[name] || maxW > exerciseAllTimeMax[name]) exerciseAllTimeMax[name] = maxW;
+      }
     });
-    return map;
-  };
-  const benchByDate = buildMaxByDate(benchHistory);
-  const squatByDate = buildMaxByDate(squatHistory);
+  });
 
   const data = {
     dates,
@@ -2698,8 +2697,8 @@ async function fetchAnalysisData() {
     deficit:   metrics.map(m => m.deficit),
     weight:    metrics.map(m => m.weight),
     volume:    metrics.map(m => m.volume),
-    benchMax:  dates.map(d => benchByDate[d] || null),
-    squatMax:  dates.map(d => squatByDate[d] || null),
+    dailyMaxLift: dates.map(d => dailyMaxMap[d] || null),
+    exerciseAllTimeMax,
     calTarget, protTarget,
   };
   analysisDataCache = data;
@@ -2747,30 +2746,43 @@ function renderChartDietStrength(data) {
     type: 'line',
     data: { labels, datasets: [
       makeDataset('Protein (g)', data.protein, '#97C459', 'yProt'),
-      makeDataset('Bench Max (lbs)', data.benchMax, '#D85A30', 'yBench', { borderDash: [4,2] }),
+      makeDataset('Max Lift (lbs)', data.dailyMaxLift, '#D85A30', 'yLift', { borderDash: [4,2] }),
     ]},
     options: { ...CHART_DEFAULTS, scales: {
       x: CHART_DEFAULTS.scales.x,
       yProt: makeYAxis('yProt', '#97C459', 'left'),
-      yBench: makeYAxis('yBench', '#D85A30', 'right'),
+      yLift: makeYAxis('yLift', '#D85A30', 'right'),
     }}
   });
 
-  // Insight: PRs after high-protein days
+  // Insight: protein days vs lift PRs
+  const proteinDays = data.protein.filter(Boolean);
+  const hasProteinData = proteinDays.length > 0;
   let prDaysAfterHighProt = 0, highProtDays = 0;
   for (let i = 0; i < data.dates.length - 1; i++) {
     if ((data.protein[i] || 0) >= data.protTarget) {
       highProtDays++;
-      const todayBench = data.benchMax[i+1];
-      const prevBench = data.benchMax.slice(0, i+1).filter(Boolean).pop();
-      if (todayBench && prevBench && todayBench > prevBench) prDaysAfterHighProt++;
+      const todayLift = data.dailyMaxLift[i+1];
+      const prevLift = data.dailyMaxLift.slice(0, i+1).filter(Boolean).pop();
+      if (todayLift && prevLift && todayLift > prevLift) prDaysAfterHighProt++;
     }
   }
+  // Build top lifts summary
+  const topLifts = Object.entries(data.exerciseAllTimeMax)
+    .sort((a,b) => b[1]-a[1]).slice(0, 4)
+    .map(([name, w]) => `${name}: ${w} lbs`).join(' · ');
+
   const insightEl = document.getElementById('insightDietStrength');
   if (insightEl) {
-    insightEl.textContent = highProtDays > 0
-      ? `Hit protein target (${data.protTarget}g+) on ${highProtDays} days in last 30. ${prDaysAfterHighProt > 0 ? prDaysAfterHighProt + ' of those were followed by a bench PR.' : 'No bench PRs the following day.'}`
-      : 'No protein data yet for the last 30 days.';
+    if (!hasProteinData) {
+      insightEl.textContent = 'No protein data logged in the last 30 days.';
+    } else {
+      const avgProt = Math.round(proteinDays.reduce((a,b)=>a+b,0)/proteinDays.length);
+      const protMsg = highProtDays > 0
+        ? `Hit protein target (${data.protTarget}g+) on ${highProtDays} days. ${prDaysAfterHighProt > 0 ? prDaysAfterHighProt + ' followed by a lift PR.' : 'No lift PRs the following day.'}`
+        : `Avg ${avgProt}g protein/day (target ${data.protTarget}g) — haven't hit target yet this month.`;
+      insightEl.textContent = topLifts ? `${protMsg} Top lifts: ${topLifts}.` : protMsg;
+    }
   }
 }
 
@@ -2879,8 +2891,8 @@ window.updateExplorer = () => {
     { id: 'chkCalories', key: 'calories',  color: '#4A90D9', label: 'Calories' },
     { id: 'chkProtein',  key: 'protein',   color: '#97C459', label: 'Protein (g)' },
     { id: 'chkWeight',   key: 'weight',    color: '#EF9F27', label: 'Weight (lbs)' },
-    { id: 'chkBench',    key: 'benchMax',  color: '#D85A30', label: 'Bench max (lbs)' },
-    { id: 'chkSquat',    key: 'squatMax',  color: '#E07090', label: 'Squat max (lbs)' },
+    { id: 'chkBench',    key: 'dailyMaxLift', color: '#D85A30', label: 'Max lift (lbs)' },
+    { id: 'chkSquat',    key: 'volume',       color: '#E07090', label: 'Volume (lb·reps)' },
     { id: 'chkVolume',   key: 'volume',    color: '#7F77DD', label: 'Volume' },
   ];
 
@@ -2931,10 +2943,12 @@ window.generateWeeklyAnalysis = async () => {
       return `${d}: cal=${cal??'—'} prot=${prot??'—'}g weight=${w??'—'}lbs vol=${vol??'—'}`;
     }).join('\n');
 
-    const bench7 = data.benchMax.slice(-7).filter(Boolean);
-    const squat7 = data.squatMax.slice(-7).filter(Boolean);
+    const maxLift7 = data.dailyMaxLift.slice(-7).filter(Boolean);
+    const topLiftsCtx = Object.entries(data.exerciseAllTimeMax||{})
+      .sort((a,b)=>b[1]-a[1]).slice(0,6)
+      .map(([n,w])=>`${n}: ${w} lbs`).join(', ');
 
-    const context = `User: Matt, 43yo, Vancouver. Goal: 168 lbs, 2200 cal/day, 180g protein/day.\n\nLast 7 days data:\n${lines}\n\nBench max recent: ${bench7.join(', ')||'—'} lbs\nSquat max recent: ${squat7.join(', ')||'—'} lbs`;
+    const context = `User: Matt, 43yo, Vancouver. Goal: 168 lbs, 2200 cal/day, 180g protein/day.\n\nLast 7 days data:\n${lines}\n\nMax lift per day (last 7): ${maxLift7.join(', ')||'—'} lbs\nAll-time exercise maxes: ${topLiftsCtx||'—'}`;
 
     const sysPrompt = `Analyze this user's fitness data and provide 3-4 bullet point insights about strength trends, nutrition adherence, weight progress, and correlations. End with one actionable recommendation. Use ✅ for positives, ⚠️ for warnings, 💡 for recommendations. Be specific with numbers. Keep each bullet to 1-2 sentences.`;
 
