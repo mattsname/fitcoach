@@ -874,7 +874,11 @@ input[type="file"] { display: none; }
       <div class="modal-title" id="editWorkoutModalTitle">Edit Workout</div>
       <button class="modal-close" onclick="closeModal('editWorkoutModal')">✕</button>
     </div>
-    <div id="editExerciseList" style="max-height:60vh;overflow-y:auto"></div>
+    <div style="display:flex;align-items:center;gap:8px;padding:8px 0 10px;border-bottom:1px solid var(--border);margin-bottom:4px">
+      <span style="font-size:12px;color:var(--muted)">Started:</span>
+      <input type="time" id="editWorkoutStartTime" style="font-size:12px;background:transparent;border:none;border-bottom:1px solid #333;color:var(--text);padding:2px 4px;font-family:'Barlow Condensed',sans-serif;cursor:pointer;outline:none">
+    </div>
+    <div id="editExerciseList" style="max-height:55vh;overflow-y:auto"></div>
     <div style="display:flex;gap:8px;margin-top:14px">
       <button class="btn btn-primary" style="flex:1" onclick="saveEditWorkout()">💾 Save</button>
       <button class="btn btn-ghost" style="color:var(--red);border-color:var(--red);white-space:nowrap" onclick="deleteEditWorkout()">🗑 Delete</button>
@@ -1024,6 +1028,10 @@ input[type="file"] { display: none; }
               <div onclick="loadQuickTemplate('swim');toggleWorkoutMenu()" style="padding:11px 14px;cursor:pointer;font-size:13px;display:flex;align-items:center;gap:10px"><span style="color:#5ab4ff;font-weight:700;font-family:'Barlow Condensed',sans-serif">SWIM</span> Quick Swim Workout</div>
             </div>
           </div>
+        </div>
+        <div id="workoutStartTimeRow" style="display:none;padding:4px 0 8px;align-items:center;gap:6px">
+          <span style="font-size:12px;color:var(--muted)">Started:</span>
+          <input type="time" id="workoutStartTime" style="font-size:12px;background:transparent;border:none;border-bottom:1px solid #333;color:var(--text);padding:2px 4px;font-family:'Barlow Condensed',sans-serif;cursor:pointer;outline:none">
         </div>
         <div class="exercise-list" id="exerciseList">
           <div style="color:var(--muted);font-size:13px;padding:8px 0">Tap "Generate Plan" to get today's workout from your coach.</div>
@@ -1221,6 +1229,7 @@ input[type="file"] { display: none; }
         </div>
         <div style="position:relative;height:200px"><canvas id="chartDietStrength"></canvas></div>
         <div class="an-insight" id="insightDietStrength"></div>
+        <div class="an-insight" id="insightMealCorrelation" style="margin-top:6px;border-top:1px solid #1e1e1e;padding-top:6px"></div>
       </div>
 
       <!-- Chart B: Cut Quality -->
@@ -1511,6 +1520,8 @@ async function loadUserData() {
   if (todayWorkout?.exercises?.length > 0) {
     state.currentWorkout = todayWorkout.exercises;
     console.log('[FitCoach] loadUserData: restored workout with', state.currentWorkout.length, 'exercises');
+    // Restore start time after DOM is ready (defer so exerciseList exists)
+    setTimeout(() => showWorkoutStartTime(todayWorkout.startTime || ''), 0);
   }
 }
 
@@ -1783,6 +1794,7 @@ window.loadQuickTemplate = async (type) => {
   }
   state.currentWorkout = exercises;
   renderExerciseList(exercises);
+  showWorkoutStartTime();
   if (state.uid) await fbSet(`users/${state.uid}/workouts/${today}`, { exercises, type: type.toUpperCase(), date: today });
   showToast(`✅ Quick ${type.toUpperCase()} workout loaded`);
 };
@@ -1817,6 +1829,14 @@ window.updateSwimPace = (ei, knownTotal) => {
   const per500m = per100m * 5;
   paceEl.textContent = `${perLap.toFixed(1)} sec/lap · ${fmtSwimTime(per100m)}/100m · ${fmtSwimTime(per500m)}/500m`;
 };
+
+function showWorkoutStartTime(storedTime) {
+  const row = document.getElementById('workoutStartTimeRow');
+  const inp = document.getElementById('workoutStartTime');
+  if (!row || !inp) return;
+  row.style.display = 'flex';
+  inp.value = storedTime || new Date().toTimeString().slice(0, 5);
+}
 
 // ── GENERATE WORKOUT ─────────────────────────────────────────
 window.generateWorkout = async () => {
@@ -1882,6 +1902,7 @@ CRITICAL OUTPUT RULES — failure to follow these will break the app:
     data.exercises = prependJogIfGymDay(data.exercises, s.type);
     state.currentWorkout = data.exercises;
     renderExerciseList(data.exercises);
+    showWorkoutStartTime();
     if (state.uid) await fbSet(`users/${state.uid}/workouts/${today}`, { exercises: data.exercises, type: s.label, date: today });
   } catch(e) {
     console.error('[FitCoach] generateWorkout failed:', e);
@@ -2231,7 +2252,10 @@ window.saveWorkout = async () => {
     const sched = getSchedule();
     const dow = selectedDay !== null ? selectedDay : new Date().getDay();
     const wType = sched[dow]?.label || '';
-    await fbSet(`users/${state.uid}/workouts/${today}`, { exercises: state.currentWorkout, type: wType, date: today });
+    const startTime = document.getElementById('workoutStartTime')?.value || '';
+    const workoutDoc = { exercises: state.currentWorkout, type: wType, date: today };
+    if (startTime) workoutDoc.startTime = startTime;
+    await fbSet(`users/${state.uid}/workouts/${today}`, workoutDoc);
   }
   showToast(`✅ Workout saved (${saved} exercises)`);
   renderExerciseList(state.currentWorkout);
@@ -2804,7 +2828,7 @@ async function fetchAnalysisData() {
   );
   const workoutCache = {};
   const workoutFetches = dates.map(d =>
-    fbGet(`users/${state.uid}/workouts/${d}`).then(r => { workoutCache[d] = r?.exercises || []; })
+    fbGet(`users/${state.uid}/workouts/${d}`).then(r => { workoutCache[d] = r || {}; })
   );
   await Promise.all([...foodFetches, ...workoutFetches]);
 
@@ -2823,7 +2847,7 @@ async function fetchAnalysisData() {
     const weight = wEntry ? wEntry.weight : null;
 
     // Workout volume
-    const exercises = workoutCache[d] || [];
+    const exercises = workoutCache[d]?.exercises || [];
     let volume = 0;
     exercises.forEach(ex => {
       const setArr = Array.isArray(ex._enteredSets) ? ex._enteredSets : [];
@@ -2871,6 +2895,25 @@ async function fetchAnalysisData() {
     swimSessions.push(entry);
   });
   swimSessions.sort((a,b) => a.date.localeCompare(b.date));
+
+  // Helper: convert "HH:MM" to minutes since midnight
+  const timeToMins = t => { if (!t) return -1; const [h,m] = t.split(':').map(Number); return h*60+m; };
+
+  // Build meal-workout gap correlation data
+  const mealWorkoutGaps = [];
+  dates.forEach(d => {
+    const startTime = workoutCache[d]?.startTime;
+    if (!startTime) return;
+    const workoutMins = timeToMins(startTime);
+    const food = (state.foodLog[d] || []).filter(f => f.time && timeToMins(f.time) >= 0 && timeToMins(f.time) < workoutMins);
+    if (food.length === 0) return;
+    const lastMeal = food.reduce((latest, f) => timeToMins(f.time) > timeToMins(latest.time) ? f : latest);
+    const gapMins = workoutMins - timeToMins(lastMeal.time);
+    if (gapMins < 0 || gapMins > 480) return; // ignore gaps >8hr (probably prev day meal)
+    const gapHours = gapMins / 60;
+    const maxLift = dailyMaxMap[d] || null;
+    mealWorkoutGaps.push({ date: d, gapHours, maxLift, startTime });
+  });
 
   // Build workout days set (any date with a logged exercise session)
   const workoutDaySet = new Set();
@@ -2921,6 +2964,7 @@ async function fetchAnalysisData() {
     dailyQuality,
     mealTimingData,
     workoutDays: dates.map(d => workoutDaySet.has(d)),
+    mealWorkoutGaps,
   };
   analysisDataCache = data;
   return data;
@@ -3056,6 +3100,37 @@ function renderChartDietStrength(data) {
         liftCtx = topLifts ? `Top lifts: ${topLifts}.` : '';
       }
       insightEl.textContent = liftCtx ? `${protMsg} ${liftCtx}` : protMsg;
+    }
+  }
+
+  // Meal-workout timing correlation
+  const corrEl = document.getElementById('insightMealCorrelation');
+  if (corrEl) {
+    const gaps = data.mealWorkoutGaps || [];
+    const needed = 5;
+    if (gaps.length < needed) {
+      const remaining = needed - gaps.length;
+      corrEl.textContent = gaps.length === 0
+        ? `⏰ Meal timing correlation: log workout start time for ${needed} sessions to see how meal timing affects your lifts.`
+        : `⏰ Meal timing: ${gaps.length}/${needed} sessions with start times logged — ${remaining} more to unlock correlation insight.`;
+    } else {
+      // Bucket by hours between last meal and workout
+      const buckets = { '<1hr':[], '1-2hr':[], '2-3hr':[], '3-4hr':[], '>4hr':[] };
+      gaps.forEach(({gapHours, maxLift}) => {
+        if (!maxLift) return;
+        const b = gapHours < 1 ? '<1hr' : gapHours < 2 ? '1-2hr' : gapHours < 3 ? '2-3hr' : gapHours < 4 ? '3-4hr' : '>4hr';
+        buckets[b].push(maxLift);
+      });
+      const ranked = Object.entries(buckets)
+        .filter(([,lifts]) => lifts.length > 0)
+        .map(([label, lifts]) => ({ label, avg: lifts.reduce((a,b)=>a+b,0)/lifts.length, n: lifts.length }))
+        .sort((a,b) => b.avg - a.avg);
+      if (ranked.length > 0) {
+        const best = ranked[0];
+        corrEl.textContent = `⏰ Best lifts (avg ${best.avg.toFixed(0)} lbs) when eating ${best.label} before workout (${best.n} sessions). ${ranked.length > 1 ? `Weakest: eating ${ranked[ranked.length-1].label} before (avg ${ranked[ranked.length-1].avg.toFixed(0)} lbs).` : ''}`;
+      } else {
+        corrEl.textContent = `⏰ ${gaps.length} sessions with timing data — no lift data to correlate yet.`;
+      }
     }
   }
 }
@@ -3780,6 +3855,7 @@ Include 5-7 exercises. Apply the changes the user requested.`;
       data.exercises = prependJogIfGymDay(data.exercises, s.type);
       state.currentWorkout = data.exercises;
       renderExerciseList(data.exercises);
+      showWorkoutStartTime();
       if (state.uid) await fbSet(`users/${state.uid}/workouts/${today}`, { exercises: data.exercises, type: s.label, date: today });
       showToast('✅ Workout updated');
     }
@@ -4017,6 +4093,8 @@ window.openEditWorkoutModal = async () => {
   openModal('editWorkoutModal');
   const doc = await fbGet(`users/${state.uid}/workouts/${date}`);
   state.editWorkout = doc?.exercises?.length > 0 ? doc.exercises : [];
+  const editStartInp = document.getElementById('editWorkoutStartTime');
+  if (editStartInp) editStartInp.value = doc?.startTime || '';
   renderEditExerciseList(state.editWorkout);
 };
 
@@ -4264,7 +4342,10 @@ window.saveEditWorkout = async () => {
     state.exerciseHistory[ex.name] = { sessions, personalBest };
     saved++;
   }
-  await fbSet(`users/${state.uid}/workouts/${date}`, { exercises: state.editWorkout, date });
+  const editStartTime = document.getElementById('editWorkoutStartTime')?.value || '';
+  const editWorkoutDoc = { exercises: state.editWorkout, date };
+  if (editStartTime) editWorkoutDoc.startTime = editStartTime;
+  await fbSet(`users/${state.uid}/workouts/${date}`, editWorkoutDoc);
   closeModal('editWorkoutModal');
   showToast(`✅ Workout saved for ${date} (${saved} exercises)`);
   analysisDataCache = null;
@@ -4611,6 +4692,13 @@ window.selectCalDay = async (ds) => {
     if (session) workoutItems.push({ name, session, pb: hist.personalBest });
   });
 
+  // Fetch workout doc for startTime (only if there are exercises that day)
+  let calWorkoutStartTime = '';
+  if (workoutItems.length > 0 && state.uid) {
+    const wDoc = await fbGet(`users/${state.uid}/workouts/${ds}`);
+    calWorkoutStartTime = wDoc?.startTime || '';
+  }
+
   const dateLabel = new Date(ds + 'T12:00:00').toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric', year:'numeric' });
   let html = `<div style="font-weight:800;font-size:15px;color:var(--orange);font-family:'Barlow Condensed',sans-serif;margin-bottom:12px;letter-spacing:0.5px">${dateLabel}</div>`;
   let any = false;
@@ -4631,7 +4719,8 @@ window.selectCalDay = async (ds) => {
 
   if (workoutItems.length > 0) {
     any = true;
-    html += `<div><div style="font-size:11px;color:var(--muted);letter-spacing:1px;margin-bottom:6px">💪 WORKOUT</div>`;
+    const workoutTimeLabel = calWorkoutStartTime ? ` · ${fmt12h(calWorkoutStartTime)}` : '';
+    html += `<div><div style="font-size:11px;color:var(--muted);letter-spacing:1px;margin-bottom:6px">💪 WORKOUT${workoutTimeLabel}</div>`;
     workoutItems.forEach(({ name, session, pb }) => {
       const isVolPB = pb?.volume?.date === ds;
       const isMaxPB = pb?.maxWeight?.date === ds;
