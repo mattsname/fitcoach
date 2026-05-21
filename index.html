@@ -1212,10 +1212,11 @@ input[type="file"] { display: none; }
 
       <!-- Chart A: Diet → Strength -->
       <div class="analysis-section">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-          <div class="an-chart-title" style="margin-bottom:0">Diet supporting strength?</div>
-          <select id="strengthExerciseSelect" onchange="setStrengthExercise(this.value)" style="font-size:11px;padding:3px 6px;border:1px solid #444;border-radius:6px;background:#111;color:#aaa;cursor:pointer;font-family:'Barlow Condensed',sans-serif;max-width:140px">
-            <option value="">All exercises</option>
+        <div class="an-chart-title">Diet supporting strength?</div>
+        <div style="margin-bottom:10px">
+          <label style="font-size:11px;color:var(--muted);letter-spacing:0.5px;display:block;margin-bottom:4px">TRACK STRENGTH FOR</label>
+          <select id="strengthExerciseSelect" onchange="setStrengthExercise(this.value)" style="width:100%;font-size:13px;padding:6px 10px;border:1px solid #333;border-radius:8px;background:#111;color:var(--text);cursor:pointer;font-family:'Barlow Condensed',sans-serif;appearance:none;-webkit-appearance:none">
+            <option value="">All Exercises (Max)</option>
           </select>
         </div>
         <div style="position:relative;height:200px"><canvas id="chartDietStrength"></canvas></div>
@@ -2957,10 +2958,11 @@ function shortDate(dateStr) {
 }
 
 // ── Chart A: Diet → Strength ──────────────────────────────────
-let selectedStrengthExercise = '';
+let selectedStrengthExercise = localStorage.getItem('strengthEx') || '';
 
 window.setStrengthExercise = (name) => {
   selectedStrengthExercise = name;
+  localStorage.setItem('strengthEx', name);
   if (analysisDataCache) renderChartDietStrength(analysisDataCache);
 };
 
@@ -3026,9 +3028,33 @@ function renderChartDietStrength(data) {
       const protMsg = highProtDays > 0
         ? `Hit protein target (${data.protTarget}g+) on ${highProtDays} days. ${prDaysAfterHighProt > 0 ? prDaysAfterHighProt + ' followed by a lift PR.' : 'No lift PRs the following day.'}`
         : `Avg ${avgProt}g protein/day (target ${data.protTarget}g) — haven't hit target yet this month.`;
-      const liftCtx = selectedStrengthExercise
-        ? `${selectedStrengthExercise} max: ${data.exerciseAllTimeMax?.[selectedStrengthExercise] ?? '—'} lbs all-time.`
-        : (topLifts ? `Top lifts: ${topLifts}.` : '');
+      let liftCtx = '';
+      if (selectedStrengthExercise) {
+        const exMap = data.perExerciseDailyMax?.[selectedStrengthExercise] || {};
+        const sessionDates = Object.keys(exMap).sort();
+        const allTimeMax = data.exerciseAllTimeMax?.[selectedStrengthExercise];
+        if (sessionDates.length >= 2) {
+          const firstW = exMap[sessionDates[0]], lastW = exMap[sessionDates[sessionDates.length - 1]];
+          const delta = lastW - firstW;
+          const deltaStr = delta === 0 ? 'unchanged' : `${delta > 0 ? '+' : ''}${delta} lbs`;
+          // Check lift on high-protein days vs avg
+          const highProtLiftDays = sessionDates.filter(d => {
+            const di = data.dates.indexOf(d);
+            return di >= 0 && (data.protein[di] || 0) >= data.protTarget;
+          });
+          const avgOnHighProt = highProtLiftDays.length > 0
+            ? Math.round(highProtLiftDays.reduce((s,d) => s + exMap[d], 0) / highProtLiftDays.length)
+            : null;
+          liftCtx = `${selectedStrengthExercise}: ${lastW} lbs max (${deltaStr} over ${sessionDates.length} sessions${allTimeMax ? ', all-time best ' + allTimeMax + ' lbs' : ''}).`;
+          if (avgOnHighProt) liftCtx += ` Avg ${avgOnHighProt} lbs on high-protein days.`;
+        } else if (sessionDates.length === 1) {
+          liftCtx = `${selectedStrengthExercise}: ${exMap[sessionDates[0]]} lbs (1 session logged).`;
+        } else {
+          liftCtx = `No ${selectedStrengthExercise} sessions in the last 30 days.`;
+        }
+      } else {
+        liftCtx = topLifts ? `Top lifts: ${topLifts}.` : '';
+      }
       insightEl.textContent = liftCtx ? `${protMsg} ${liftCtx}` : protMsg;
     }
   }
