@@ -1244,6 +1244,26 @@ input[type="file"] { display: none; }
         <div class="an-insight" id="insightSwim"></div>
       </div>
 
+      <!-- Chart E: Diet Quality -->
+      <div class="analysis-section">
+        <div class="an-chart-title">Diet quality trend</div>
+        <div style="position:relative;height:200px"><canvas id="chartDietQuality"></canvas></div>
+        <div class="an-insight" id="insightDietQuality"></div>
+      </div>
+
+      <!-- Chart F: Meal Timing -->
+      <div class="analysis-section">
+        <div class="an-chart-title">Meal timing patterns</div>
+        <div style="display:flex;gap:12px;margin-bottom:6px;font-size:11px;color:var(--muted)">
+          <span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#3dffc0;vertical-align:middle;margin-right:3px"></span>Morning</span>
+          <span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#EF9F27;vertical-align:middle;margin-right:3px"></span>Afternoon</span>
+          <span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#ff5c1a;vertical-align:middle;margin-right:3px"></span>Evening</span>
+          <span><span style="display:inline-block;width:10px;height:2px;background:#fff;vertical-align:middle;margin-right:3px"></span>Workout day</span>
+        </div>
+        <div style="position:relative;height:220px"><canvas id="chartMealTiming"></canvas></div>
+        <div class="an-insight" id="insightMealTiming"></div>
+      </div>
+
       <!-- Custom Explorer -->
       <div class="analysis-section">
         <button class="an-explorer-toggle" onclick="toggleExplorer()" id="explorerToggleBtn">▶ Explore custom correlations</button>
@@ -2402,7 +2422,8 @@ window.analyseFood = async () => {
   btn.disabled = true;
 
   const sys = `You are a precise nutritionist. Return ONLY a JSON object, no markdown:
-{"items":[{"name":"string","emoji":"string","calories":number,"protein":number,"carbs":number,"fat":number}],"total":{"calories":number,"protein":number,"carbs":number,"fat":number},"comment":"one sentence tip under 50 words"}`;
+{"items":[{"name":"string","emoji":"string","calories":number,"protein":number,"carbs":number,"fat":number,"quality":number}],"total":{"calories":number,"protein":number,"carbs":number,"fat":number},"comment":"one sentence tip under 50 words"}
+quality is integer 1-5: 1=junk/candy/fast food, 2=low/processed/refined, 3=moderate/pasta/rice/basic protein, 4=good/whole grains/lean protein/veg, 5=excellent/nutrient-dense whole foods`;
 
   const parts = [];
   if (foodPhotoB64) parts.push({ inline_data: { mime_type: 'image/jpeg', data: foodPhotoB64 } });
@@ -2453,7 +2474,7 @@ function renderFoodLog() {
     <div class="food-entry">
       <div class="food-emoji">${f.emoji||'🍽'}</div>
       <div class="food-info">
-        <div class="food-name">${f.time ? `<span style="font-size:11px;color:var(--muted)">${fmt12h(f.time)} · </span>` : ''}${f.name}</div>
+        <div class="food-name">${f.time ? `<span style="font-size:11px;color:var(--muted)">${fmt12h(f.time)} · </span>` : ''}${qualityDot(f.quality)}${f.name}</div>
         <div class="food-macros">P: ${Math.round(f.protein||0)}g · C: ${Math.round(f.carbs||0)}g · F: ${Math.round(f.fat||0)}g</div>
       </div>
       <div class="food-cals">${f.calories}</div>
@@ -2841,6 +2862,40 @@ async function fetchAnalysisData() {
   });
   swimSessions.sort((a,b) => a.date.localeCompare(b.date));
 
+  // Build workout days set (any date with a logged exercise session)
+  const workoutDaySet = new Set();
+  Object.values(state.exerciseHistory).forEach(hist => {
+    (hist.sessions || []).forEach(s => workoutDaySet.add(s.date));
+  });
+
+  // Build diet quality per day (avg quality of items that have quality field)
+  const dailyQuality = dates.map(d => {
+    const food = state.foodLog[d] || [];
+    const rated = food.filter(f => f.quality);
+    return rated.length > 0 ? rated.reduce((s,f) => s + f.quality, 0) / rated.length : null;
+  });
+
+  // Build meal timing data per day: calories split into morning/afternoon/evening buckets
+  const mealTimingData = dates.map(d => {
+    const food = state.foodLog[d] || [];
+    if (food.length === 0) return null;
+    let morning = 0, afternoon = 0, evening = 0, unset = 0;
+    food.forEach(f => {
+      const cal = f.calories || 0;
+      if (!f.time) { unset += cal; return; }
+      const h = parseInt(f.time.split(':')[0]);
+      if (h < 12) morning += cal;
+      else if (h < 17) afternoon += cal;
+      else evening += cal;
+    });
+    // Distribute unset calories proportionally (or add to evening as default)
+    evening += unset;
+    const total = morning + afternoon + evening;
+    if (total === 0) return null;
+    return { morning, afternoon, evening, total,
+      morningPct: morning/total*100, afternoonPct: afternoon/total*100, eveningPct: evening/total*100 };
+  });
+
   const data = {
     dates,
     calories:  metrics.map(m => m.cals > 0 ? m.cals : null),
@@ -2852,6 +2907,9 @@ async function fetchAnalysisData() {
     exerciseAllTimeMax,
     calTarget, protTarget,
     swimSessions,
+    dailyQuality,
+    mealTimingData,
+    workoutDays: dates.map(d => workoutDaySet.has(d)),
   };
   analysisDataCache = data;
   return data;
@@ -3092,6 +3150,97 @@ function renderChartSwim(data) {
   }
 }
 
+// ── Chart E: Diet Quality ─────────────────────────────────────
+function renderChartDietQuality(data) {
+  destroyChart('chartDietQuality');
+  const ctx = document.getElementById('chartDietQuality');
+  if (!ctx) return;
+
+  const hasQuality = data.dailyQuality.some(Boolean);
+  if (!hasQuality) {
+    const el = document.getElementById('insightDietQuality');
+    if (el) el.textContent = 'No quality data yet — food quality scores will appear after logging meals via Gemini.';
+    return;
+  }
+
+  const labels = data.dates.map(shortDate);
+  analysisCharts['chartDietQuality'] = new Chart(ctx, {
+    type: 'line',
+    data: { labels, datasets: [
+      makeDataset('Avg Quality', data.dailyQuality, '#97C459', 'yQual'),
+      makeDataset('Calories', data.calories, '#4A90D9', 'yCal', { borderDash: [4,2] }),
+    ]},
+    options: { ...CHART_DEFAULTS, scales: {
+      x: CHART_DEFAULTS.scales.x,
+      yQual: { ...makeYAxis('yQual', '#97C459', 'left', 'quality'), min: 1, max: 5, ticks: { color: '#97C459', font: { size: 10 }, stepSize: 1 } },
+      yCal: makeYAxis('yCal', '#4A90D9', 'right', 'kcal'),
+    }}
+  });
+
+  const rated = data.dailyQuality.filter(Boolean);
+  const avg = rated.length > 0 ? (rated.reduce((a,b)=>a+b,0)/rated.length).toFixed(1) : null;
+  const highQualDays = data.dailyQuality.filter(q => q !== null && q >= 4).length;
+  const lowQualDays = data.dailyQuality.filter(q => q !== null && q <= 2).length;
+  const el = document.getElementById('insightDietQuality');
+  if (el && avg) {
+    const label = parseFloat(avg) >= 4 ? 'Excellent' : parseFloat(avg) >= 3 ? 'Good' : 'Needs work';
+    el.textContent = `Avg food quality: ${avg}/5 (${label}) over ${rated.length} logged days. ${highQualDays} high-quality days (4+), ${lowQualDays} low-quality days (1-2).`;
+  }
+}
+
+// ── Chart F: Meal Timing ──────────────────────────────────────
+function renderChartMealTiming(data) {
+  destroyChart('chartMealTiming');
+  const ctx = document.getElementById('chartMealTiming');
+  if (!ctx) return;
+
+  const hasTiming = data.mealTimingData.some(Boolean);
+  if (!hasTiming) {
+    const el = document.getElementById('insightMealTiming');
+    if (el) el.textContent = 'No meal timing data yet — log food with timestamps to see patterns.';
+    return;
+  }
+
+  const labels = data.dates.map(shortDate);
+  const morningData  = data.mealTimingData.map(d => d ? Math.round(d.morning)  : null);
+  const afternoonData= data.mealTimingData.map(d => d ? Math.round(d.afternoon): null);
+  const eveningData  = data.mealTimingData.map(d => d ? Math.round(d.evening)  : null);
+  // Workout indicator line: 1 on workout days with food data, null otherwise
+  const workoutLine  = data.dates.map((d,i) => (data.workoutDays[i] && data.mealTimingData[i]) ? (data.mealTimingData[i].total || 0) * 0.05 : null);
+
+  analysisCharts['chartMealTiming'] = new Chart(ctx, {
+    type: 'bar',
+    data: { labels, datasets: [
+      { label:'Morning', data:morningData, backgroundColor:'#3dffc0aa', stack:'timing', borderRadius:2 },
+      { label:'Afternoon', data:afternoonData, backgroundColor:'#EF9F27aa', stack:'timing', borderRadius:2 },
+      { label:'Evening', data:eveningData, backgroundColor:'#ff5c1aaa', stack:'timing', borderRadius:2 },
+      { type:'line', label:'Workout day', data:workoutLine, borderColor:'#ffffff88', backgroundColor:'transparent',
+        borderWidth:1, pointRadius:5, pointStyle:'triangle', pointBackgroundColor:'#fff', spanGaps:false, yAxisID:'yCal', order:0 },
+    ]},
+    options: { ...CHART_DEFAULTS,
+      scales: {
+        x: CHART_DEFAULTS.scales.x,
+        y: { stacked:true, ticks:{ color:'#555', font:{size:10}, maxTicksLimit:5 }, grid:{ color:'#1e1e1e' }, title:{ display:true, text:'kcal', color:'#555', font:{size:10} } },
+        yCal: { display:false, stacked:false },
+      },
+      plugins: { ...CHART_DEFAULTS.plugins, legend:{ display:false } },
+    }
+  });
+
+  // Insight
+  const days = data.mealTimingData.filter(Boolean);
+  const el = document.getElementById('insightMealTiming');
+  if (el && days.length > 0) {
+    const avgMorningPct  = Math.round(days.reduce((s,d)=>s+d.morningPct,0)/days.length);
+    const avgAfternoonPct= Math.round(days.reduce((s,d)=>s+d.afternoonPct,0)/days.length);
+    const avgEveningPct  = Math.round(days.reduce((s,d)=>s+d.eveningPct,0)/days.length);
+    let insight = `On average: ${avgMorningPct}% morning · ${avgAfternoonPct}% afternoon · ${avgEveningPct}% evening.`;
+    if (avgEveningPct > 50) insight += ` ${avgEveningPct}% of calories after 5pm — consider shifting some to morning for better workout energy.`;
+    else if (avgMorningPct > 40) insight += ' Good front-loading of calories — supports workout energy.';
+    el.textContent = insight;
+  }
+}
+
 // ── Custom Explorer ───────────────────────────────────────────
 window.toggleExplorer = () => {
   const content = document.getElementById('explorerContent');
@@ -3220,6 +3369,8 @@ async function initAnalysisDashboard() {
   renderChartCutQuality(data);
   renderChartRecovery(data);
   renderChartSwim(data);
+  renderChartDietQuality(data);
+  renderChartMealTiming(data);
   // Auto-generate Gemini summary on first visit
   if (!analysisInitialized) {
     analysisInitialized = true;
@@ -3720,6 +3871,12 @@ function fmtSwimTime(secs) {
   return `${m}:${String(s).padStart(2, '0')}`;
 }
 
+function qualityDot(q) {
+  if (!q) return '';
+  const color = q <= 2 ? '#ff3b5c' : q === 3 ? '#EF9F27' : '#3dffc0';
+  return `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${color};margin:0 3px 1px;vertical-align:middle;flex-shrink:0"></span>`;
+}
+
 function fmt12h(t) {
   if (!t) return '';
   const [h, m] = t.split(':').map(Number);
@@ -4081,16 +4238,32 @@ function renderEditFoodList() {
     el.innerHTML = '<div style="color:var(--muted);font-size:13px;padding:4px 0">No food logged — add items below.</div>';
     return;
   }
-  el.innerHTML = editFoodItems.map((f,i) => `
+  const qLabels = ['','1-Junk','2-Low','3-OK','4-Good','5-Best'];
+  el.innerHTML = editFoodItems.map((f,i) => {
+    const qVal = f.quality || 3;
+    const qColor = qVal <= 2 ? '#ff3b5c' : qVal === 3 ? '#EF9F27' : '#3dffc0';
+    const qOpts = [1,2,3,4,5].map(n => `<option value="${n}"${n===qVal?' selected':''}>${qLabels[n]}</option>`).join('');
+    return `
     <div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid #1e1e1e">
       <div style="font-size:20px">${f.emoji||'🍽'}</div>
       <div style="flex:1;min-width:0">
         <div style="font-size:13px;font-weight:600">${f.time?`<span style="font-size:11px;color:var(--muted)">${fmt12h(f.time)} · </span>`:''}${f.name}</div>
-        <div style="font-size:11px;color:var(--muted)">${f.calories} kcal · ${Math.round(f.protein||0)}g protein</div>
+        <div style="display:flex;align-items:center;gap:6px;margin-top:2px">
+          <span style="font-size:11px;color:var(--muted)">${f.calories} kcal · ${Math.round(f.protein||0)}g protein</span>
+          <select onchange="setEditFoodQuality(${i},this.value)" style="font-size:10px;padding:1px 3px;border:1px solid ${qColor};border-radius:4px;background:#1a1a1a;color:${qColor};cursor:pointer;font-family:'Barlow Condensed',sans-serif">${qOpts}</select>
+        </div>
       </div>
       <button onclick="removeEditFoodItem(${i})" style="background:none;border:none;color:var(--muted);font-size:18px;cursor:pointer;padding:4px;flex-shrink:0">✕</button>
-    </div>`).join('');
+    </div>`;
+  }).join('');
 }
+
+window.setEditFoodQuality = (idx, val) => {
+  if (editFoodItems[idx]) {
+    editFoodItems[idx].quality = parseInt(val);
+    renderEditFoodList();
+  }
+};
 
 window.removeEditFoodItem = (idx) => {
   editFoodItems.splice(idx, 1);
@@ -4103,7 +4276,7 @@ window.addManualFoodItem = () => {
   const cal  = parseFloat(document.getElementById('editFoodCal').value) || 0;
   const prot = parseFloat(document.getElementById('editFoodProt').value) || 0;
   const time = document.getElementById('editFoodTime').value || '';
-  editFoodItems.push({ name, emoji:'🍽', calories:cal, protein:prot, carbs:0, fat:0, time });
+  editFoodItems.push({ name, emoji:'🍽', calories:cal, protein:prot, carbs:0, fat:0, time, quality:3 });
   document.getElementById('editFoodName').value = '';
   document.getElementById('editFoodCal').value  = '';
   document.getElementById('editFoodProt').value = '';
@@ -4114,7 +4287,7 @@ window.analyseEditFood = async () => {
   const text = document.getElementById('editFoodName').value.trim();
   if (!text) { showToast('⚠️ Describe a meal in the name field first'); return; }
   const time = document.getElementById('editFoodTime').value || '';
-  const sys = `You are a precise nutritionist. Return ONLY a JSON object, no markdown:\n{"items":[{"name":"string","emoji":"string","calories":number,"protein":number,"carbs":number,"fat":number}]}`;
+  const sys = `You are a precise nutritionist. Return ONLY a JSON object, no markdown:\n{"items":[{"name":"string","emoji":"string","calories":number,"protein":number,"carbs":number,"fat":number,"quality":number}]}\nquality is 1-5: 1=junk, 2=low/processed, 3=moderate, 4=good/whole foods, 5=excellent/nutrient-dense`;
   try {
     showToast('⏳ Analysing...');
     const res = await callGemini([{role:'user',parts:[{text}]}], sys);
