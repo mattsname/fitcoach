@@ -3711,7 +3711,7 @@ window.selectCalDay = async (ds) => {
       const badge = (isVolPB || isMaxPB) ? ` <span style="color:#ff5c1a;font-size:11px;font-weight:700">🏆 PB</span>` : '';
       html += `<div style="margin-bottom:6px;padding:8px 10px;background:#1a1a1a;border-radius:8px">
         <div style="font-size:14px;font-weight:700;margin-bottom:4px">${name}${badge}</div>
-        ${session.sets.map(s=>`<div style="font-size:12px;color:var(--muted)">Set ${s.set}: ${s.weight} lbs × ${s.reps||'?'} reps</div>`).join('')}
+        ${session.sets.map(s=>`<div style="font-size:12px;color:var(--muted)">${formatSetSummary(name, s)}</div>`).join('')}
       </div>`;
     });
     html += `</div>`;
@@ -3721,6 +3721,17 @@ window.selectCalDay = async (ds) => {
   content.innerHTML = html;
   detail.scrollIntoView({ behavior:'smooth', block:'nearest' });
 };
+
+function formatSetSummary(exName, set) {
+  if (/jog|treadmill/i.test(exName)) {
+    return `Set ${set.set}: ${set.weight} mph × ${set.reps||'?'} min`;
+  }
+  if (exName === 'Swimming') {
+    const lengths = set.reps || 0;
+    return `Set ${set.set}: ${lengths} lengths (${lengths * 25}m), ${set.weight || 'Freestyle'}`;
+  }
+  return `Set ${set.set}: ${set.weight} lbs × ${set.reps||'?'} reps`;
+}
 
 window.lookupExerciseHistory = () => {
   const name = document.getElementById('exHistorySelect').value;
@@ -3778,14 +3789,27 @@ window.lookupExerciseHistory = () => {
   // Session list newest first
   html += [...sessions].reverse().map(s => {
     const d = new Date(s.date+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
-    const vol = s.sets.reduce((sum,set)=>sum+(set.weight*(set.reps||0)),0);
-    const maxW = Math.max(...s.sets.map(set=>set.weight));
+    const isJogEx  = /jog|treadmill/i.test(name);
+    const isSwimEx = name === 'Swimming';
+    let summary;
+    if (isSwimEx) {
+      const totalLengths = s.sets.reduce((sum,set)=>sum+(set.reps||0),0);
+      summary = `${totalLengths} lengths · ${totalLengths*25}m`;
+    } else if (isJogEx) {
+      const dur = s.sets[0]?.reps || 0;
+      const spd = s.sets[0]?.weight || 0;
+      summary = `${spd} mph · ${dur} min`;
+    } else {
+      const vol = s.sets.reduce((sum,set)=>sum+(parseFloat(set.weight)||0)*(set.reps||0),0);
+      const maxW = Math.max(...s.sets.map(set=>parseFloat(set.weight)||0));
+      summary = `Vol ${vol.toLocaleString()} · Max ${maxW} lbs`;
+    }
     return `<div style="padding:8px 10px;background:#1a1a1a;border-radius:8px;margin-bottom:6px">
       <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">
         <span style="font-size:13px;font-weight:700">${d}</span>
-        <span style="font-size:11px;color:var(--muted)">Vol ${vol.toLocaleString()} · Max ${maxW} lbs</span>
+        <span style="font-size:11px;color:var(--muted)">${summary}</span>
       </div>
-      ${s.sets.map(set=>`<span style="font-size:12px;color:var(--muted);margin-right:10px">Set ${set.set}: ${set.weight}×${set.reps||'?'}</span>`).join('')}
+      ${s.sets.map(set=>`<span style="font-size:12px;color:var(--muted);margin-right:10px">${formatSetSummary(name, set)}</span>`).join('')}
     </div>`;
   }).join('');
 
