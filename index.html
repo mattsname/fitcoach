@@ -1383,6 +1383,12 @@ const APPROVED_EXERCISES = [
 
 const JOG_WARMUP = { name: '5-Min Treadmill Jog', sets: 1, repsRange: '5', suggestedWeight: 8.6, unit: 'mph', muscleGroup: 'Cardio', notes: '8.6 mph warmup — always first', isJog: true };
 
+// Exercises where sets use duration (seconds) instead of reps.
+// Add new isometrics here when introduced (e.g. 'Side Plank', 'Wall Sit', 'Dead Hang').
+const ISOMETRIC_EXERCISES = new Set([
+  'Plank',
+]);
+
 function prependJogIfGymDay(exercises, scheduleType) {
   const type = (scheduleType || '').toLowerCase();
   if (type !== 'push' && type !== 'pull' && type !== 'legs') return exercises;
@@ -1477,6 +1483,25 @@ async function fbGet(path) {
 
 async function fbSet(path, data) {
   try { await setDoc(doc(db, path), data, { merge: true }); } catch(e) { console.warn('fbSet error', e); }
+}
+
+// Builds the watch-compatible workouts/{date} document.
+// loggedSetsMap: { exerciseName: [{set,weight,reps}] } — pass {} when generating (sets empty),
+// pass populated map on save so the watch sees actual logged sets.
+function buildWatchWorkoutDoc(exercises, type, date, { startTime, loggedSetsMap = {} } = {}) {
+  const watchDoc = {
+    date,
+    type: (type || '').toUpperCase(),
+    exercises: (exercises || []).map(ex => ({
+      name: ex.name,
+      timeBased: ISOMETRIC_EXERCISES.has(ex.name),
+      plannedSets: typeof ex.sets === 'number' ? ex.sets : 3,
+      sets: loggedSetsMap[ex.name] || [],
+    })),
+    updatedAt: Date.now(),
+  };
+  if (startTime) watchDoc.startTime = startTime;
+  return watchDoc;
 }
 
 async function loadUserData() {
@@ -1795,7 +1820,7 @@ window.loadQuickTemplate = async (type) => {
   state.currentWorkout = exercises;
   renderExerciseList(exercises);
   showWorkoutStartTime();
-  if (state.uid) await fbSet(`users/${state.uid}/workouts/${today}`, { exercises, type: type.toUpperCase(), date: today });
+  if (state.uid) await fbSet(`users/${state.uid}/workouts/${today}`, buildWatchWorkoutDoc(exercises, type, today));
   showToast(`✅ Quick ${type.toUpperCase()} workout loaded`);
 };
 
@@ -1903,7 +1928,7 @@ CRITICAL OUTPUT RULES — failure to follow these will break the app:
     state.currentWorkout = data.exercises;
     renderExerciseList(data.exercises);
     showWorkoutStartTime();
-    if (state.uid) await fbSet(`users/${state.uid}/workouts/${today}`, { exercises: data.exercises, type: s.label, date: today });
+    if (state.uid) await fbSet(`users/${state.uid}/workouts/${today}`, buildWatchWorkoutDoc(data.exercises, s.label, today));
   } catch(e) {
     console.error('[FitCoach] generateWorkout failed:', e);
     document.getElementById('exerciseList').innerHTML = `
@@ -2164,6 +2189,7 @@ window.saveWorkout = async () => {
   const today = todayStr();
   let saved = 0;
   const pbMessages = [];
+  const loggedSetsMap = {}; // { exerciseName: [logged sets] } — for watch doc
 
   for (let ei = 0; ei < state.currentWorkout.length; ei++) {
     const ex = state.currentWorkout[ei];
@@ -2185,6 +2211,7 @@ window.saveWorkout = async () => {
         if (!isNaN(weight) && weight > 0) sets.push({ set: si+1, weight, reps: isNaN(reps) ? 0 : reps });
       });
     }
+    loggedSetsMap[ex.name] = sets; // capture before continue so watch doc includes all exercises
     if (sets.length === 0) continue;
 
     // Capture session time for swimming
@@ -2253,9 +2280,8 @@ window.saveWorkout = async () => {
     const dow = selectedDay !== null ? selectedDay : new Date().getDay();
     const wType = sched[dow]?.label || '';
     const startTime = document.getElementById('workoutStartTime')?.value || '';
-    const workoutDoc = { exercises: state.currentWorkout, type: wType, date: today };
-    if (startTime) workoutDoc.startTime = startTime;
-    await fbSet(`users/${state.uid}/workouts/${today}`, workoutDoc);
+    await fbSet(`users/${state.uid}/workouts/${today}`,
+      buildWatchWorkoutDoc(state.currentWorkout, wType, today, { startTime, loggedSetsMap }));
   }
   showToast(`✅ Workout saved (${saved} exercises)`);
   renderExerciseList(state.currentWorkout);
@@ -3856,7 +3882,7 @@ Include 5-7 exercises. Apply the changes the user requested.`;
       state.currentWorkout = data.exercises;
       renderExerciseList(data.exercises);
       showWorkoutStartTime();
-      if (state.uid) await fbSet(`users/${state.uid}/workouts/${today}`, { exercises: data.exercises, type: s.label, date: today });
+      if (state.uid) await fbSet(`users/${state.uid}/workouts/${today}`, buildWatchWorkoutDoc(data.exercises, s.label, today));
       showToast('✅ Workout updated');
     }
   } catch(e) { console.warn('Workout update failed:', e); }
@@ -4093,6 +4119,7 @@ window.openEditWorkoutModal = async () => {
   openModal('editWorkoutModal');
   const doc = await fbGet(`users/${state.uid}/workouts/${date}`);
   state.editWorkout = doc?.exercises?.length > 0 ? doc.exercises : [];
+  state.editWorkoutType = doc?.type || '';
   const editStartInp = document.getElementById('editWorkoutStartTime');
   if (editStartInp) editStartInp.value = doc?.startTime || '';
   renderEditExerciseList(state.editWorkout);
@@ -4309,6 +4336,7 @@ window.saveEditWorkout = async () => {
   const date = state.editDate;
   const list = document.getElementById('editExerciseList');
   let saved = 0;
+  const editLoggedSetsMap = {}; // { exerciseName: [logged sets] } — for watch doc
   for (let ei = 0; ei < state.editWorkout.length; ei++) {
     const ex = state.editWorkout[ei];
     const isSwimEx = !!(ex.isSwim || ex.name === 'Swimming');
@@ -4328,6 +4356,7 @@ window.saveEditWorkout = async () => {
         if (!isNaN(weight) && weight > 0) sets.push({ set:si+1, weight, reps:isNaN(reps)?0:reps });
       });
     }
+    editLoggedSetsMap[ex.name] = sets; // capture before continue so watch doc includes all exercises
     if (sets.length === 0) continue;
     const swimTimeInpEdit = isSwimEx ? list.querySelector(`[data-ex="${ei}"][data-type="swimtime"]`) : null;
     const sessionTimeEdit = swimTimeInpEdit ? (parseSwimTime(swimTimeInpEdit.value) || 0) : 0;
@@ -4343,9 +4372,9 @@ window.saveEditWorkout = async () => {
     saved++;
   }
   const editStartTime = document.getElementById('editWorkoutStartTime')?.value || '';
-  const editWorkoutDoc = { exercises: state.editWorkout, date };
-  if (editStartTime) editWorkoutDoc.startTime = editStartTime;
-  await fbSet(`users/${state.uid}/workouts/${date}`, editWorkoutDoc);
+  await fbSet(`users/${state.uid}/workouts/${date}`,
+    buildWatchWorkoutDoc(state.editWorkout, state.editWorkoutType || '', date,
+      { startTime: editStartTime, loggedSetsMap: editLoggedSetsMap }));
   closeModal('editWorkoutModal');
   showToast(`✅ Workout saved for ${date} (${saved} exercises)`);
   analysisDataCache = null;
