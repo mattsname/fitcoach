@@ -1986,6 +1986,7 @@ function renderExerciseList(exercises) {
 
     const isJog  = !!(ex.isJog);
     const isSwim = !!(ex.isSwim || ex.name === 'Swimming');
+    const isIso  = ISOMETRIC_EXERCISES.has(ex.name);
     let subtitleHTML = '';
     if (lastSession) {
       const d = new Date(lastSession.date + 'T12:00:00');
@@ -1998,12 +1999,15 @@ function renderExerciseList(exercises) {
         const totalLengths = lastSession.sets.reduce((sum, s) => sum + (parseInt(s.reps) || 0), 0);
         const swimTimeStr = lastSession.sessionTime > 0 ? ` · ${fmtSwimTime(lastSession.sessionTime)}` : '';
         subtitleHTML += `<div style="font-size:11px;color:var(--muted);margin-top:2px">Last: ${dateLabel} · ${totalLengths} lengths · ${totalLengths * 25}m${swimTimeStr}</div>`;
+      } else if (isIso) {
+        const maxDur = Math.max(...lastSession.sets.map(s => s.duration || 0));
+        subtitleHTML += `<div style="font-size:11px;color:var(--muted);margin-top:2px">Last: ${dateLabel} · ${maxDur} sec max hold</div>`;
       } else {
         const weights = lastSession.sets.map(s => s.weight).join('/');
         subtitleHTML += `<div style="font-size:11px;color:var(--muted);margin-top:2px">Last: ${dateLabel} · ${weights} lbs</div>`;
       }
     } else {
-      subtitleHTML += `<div class="exercise-sets">${ex.sets} sets · ${isJog ? ex.repsRange + ' min' : isSwim ? (ex.repsRange||'20') + ' lengths/set' : (ex.repsRange || '8-12') + ' reps'} · ${isSwim ? '' : ex.suggestedWeight ? ex.suggestedWeight + ' ' + (ex.unit||'lbs') : 'bodyweight'}</div>`;
+      subtitleHTML += `<div class="exercise-sets">${ex.sets} sets · ${isJog ? ex.repsRange + ' min' : isSwim ? (ex.repsRange||'20') + ' lengths/set' : isIso ? (ex.repsRange||'60') + ' sec' : (ex.repsRange || '8-12') + ' reps'} · ${isSwim || isIso ? '' : ex.suggestedWeight ? ex.suggestedWeight + ' ' + (ex.unit||'lbs') : 'bodyweight'}</div>`;
     }
     // PB display intentionally omitted here — shown in Progress tab only
 
@@ -2038,6 +2042,7 @@ function renderExerciseList(exercises) {
       const entered = ex._enteredSets?.[si];
       const lastW = entered?.weight ?? lastSession?.sets?.[si]?.weight ?? ex.suggestedWeight ?? '';
       const lastR = entered?.reps   ?? lastSession?.sets?.[si]?.reps   ?? (isJog ? 5 : isSwim ? 20 : (parseInt(ex.repsRange?.split('-')[0]) || 10));
+      const lastD = entered?.duration ?? lastSession?.sets?.[si]?.duration ?? 60;
       if (isSwim) {
         const strokes = ['Freestyle','Backstroke','Breaststroke','Butterfly','Mixed'];
         const strokeVal = lastW || 'Freestyle';
@@ -2056,6 +2061,27 @@ function renderExerciseList(exercises) {
               <select class="set-input" data-ex="${ei}" data-set="${si}" data-type="weight" onchange="saveSetData(${ei},${si})" style="height:40px;font-size:12px;padding:0 6px;background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:var(--radius-sm)">
                 ${strokes.map(s => `<option value="${s}"${strokeVal===s?' selected':''}>${s}</option>`).join('')}
               </select>
+            </div>
+          </div>
+        </div>
+        <button class="set-done-btn" data-ex="${ei}" data-set="${si}" onclick="toggleSetDone(this)">✓</button>
+      </div>`;
+      }
+      if (isIso) {
+        return `
+      <div class="set-row">
+        <div class="set-label">Set ${si+1}</div>
+        <div class="set-input-group">
+          <div class="set-inputs">
+            <div>
+              <div class="set-input-label">DURATION</div>
+              <input class="set-input" type="number" step="1" value="${lastD}" placeholder="60" data-ex="${ei}" data-set="${si}" data-type="duration" onchange="saveSetData(${ei},${si})">
+              <div class="set-input-unit">sec</div>
+            </div>
+            <div>
+              <div class="set-input-label">WEIGHT</div>
+              <input class="set-input" type="number" step="1" value="${lastW}" placeholder="${lastW||0}" data-ex="${ei}" data-set="${si}" data-type="weight" onchange="saveSetData(${ei},${si})">
+              <div class="set-input-unit">${ex.unit||'lbs'}</div>
             </div>
           </div>
         </div>
@@ -2158,10 +2184,12 @@ function captureWorkoutInputs() {
   state.currentWorkout.forEach((ex, ei) => {
     const wInps = list.querySelectorAll(`[data-ex="${ei}"][data-type="weight"]`);
     const rInps = list.querySelectorAll(`[data-ex="${ei}"][data-type="reps"]`);
+    const dInps = list.querySelectorAll(`[data-ex="${ei}"][data-type="duration"]`);
     if (wInps.length === 0) return;
     ex._enteredSets = Array.from(wInps).map((inp, si) => ({
-      weight: inp.value !== '' ? inp.value : null,
-      reps:   rInps[si]?.value !== '' ? rInps[si].value : null,
+      weight:   inp.value !== '' ? inp.value : null,
+      reps:     rInps[si]?.value !== '' ? rInps[si].value : null,
+      duration: dInps[si]?.value !== '' ? dInps[si].value : null,
     }));
     ex.sets = wInps.length; // keep set count in sync with actual rendered rows
     const tInp = list.querySelector(`[data-ex="${ei}"][data-type="swimtime"]`);
@@ -2178,7 +2206,25 @@ window.addSet = (ei) => {
   const div = document.createElement('div');
   div.className = 'set-row';
   const isJog = !!(ex.isJog);
-  div.innerHTML = `
+  const isIsoAdd = ISOMETRIC_EXERCISES.has(ex.name);
+  if (isIsoAdd) {
+    div.innerHTML = `
+    <div class="set-label">Set ${si+1}</div>
+    <div class="set-input-group"><div class="set-inputs">
+      <div>
+        <div class="set-input-label">DURATION</div>
+        <input class="set-input" type="number" step="1" value="" placeholder="60" data-ex="${ei}" data-set="${si}" data-type="duration" onchange="saveSetData(${ei},${si})">
+        <div class="set-input-unit">sec</div>
+      </div>
+      <div>
+        <div class="set-input-label">WEIGHT</div>
+        <input class="set-input" type="number" step="1" value="${lastW}" placeholder="${lastW||0}" data-ex="${ei}" data-set="${si}" data-type="weight" onchange="saveSetData(${ei},${si})">
+        <div class="set-input-unit">${ex.unit||'lbs'}</div>
+      </div>
+    </div></div>
+    <button class="set-done-btn" data-ex="${ei}" data-set="${si}" onclick="toggleSetDone(this)">✓</button>`;
+  } else {
+    div.innerHTML = `
     <div class="set-label">Set ${si+1}</div>
     <div class="set-input-group"><div class="set-inputs">
       <div>
@@ -2193,6 +2239,7 @@ window.addSet = (ei) => {
       </div>
     </div></div>
     <button class="set-done-btn" data-ex="${ei}" data-set="${si}" onclick="toggleSetDone(this)">✓</button>`;
+  }
   detail.querySelector('.add-set-btn').before(div);
 };
 
@@ -2229,6 +2276,7 @@ window.saveWorkout = async () => {
   for (let ei = 0; ei < state.currentWorkout.length; ei++) {
     const ex = state.currentWorkout[ei];
     const isSwimEx = !!(ex.isSwim || ex.name === 'Swimming');
+    const isIsoEx  = ISOMETRIC_EXERCISES.has(ex.name);
     const weightInputs = document.querySelectorAll(`[data-ex="${ei}"][data-type="weight"]`);
     const repInputs = document.querySelectorAll(`[data-ex="${ei}"][data-type="reps"]`);
     const sets = [];
@@ -2238,6 +2286,13 @@ window.saveWorkout = async () => {
         const stroke = inp.value || 'Freestyle';
         const lengths = parseInt(repInputs[si]?.value);
         if (!isNaN(lengths) && lengths > 0) sets.push({ set: si+1, weight: stroke, reps: lengths });
+      });
+    } else if (isIsoEx) {
+      const durationInputs = document.querySelectorAll(`[data-ex="${ei}"][data-type="duration"]`);
+      weightInputs.forEach((inp, si) => {
+        const weight = parseFloat(inp.value) || 0;
+        const dur = parseInt(durationInputs[si]?.value);
+        if (!isNaN(dur) && dur > 0) sets.push({ set: si+1, weight, duration: dur });
       });
     } else {
       weightInputs.forEach((inp, si) => {
@@ -2266,11 +2321,23 @@ window.saveWorkout = async () => {
     const oldPB = existing.personalBest || {};
     const personalBest = { ...oldPB };
     let newVolumePB = false, newMaxPB = false;
-    if (!isSwimEx) {
-      const todayVolume = isJog
+    let todayVolume = 0, todayMax = 0, todayMaxDur = 0, todayTotalDur = 0;
+    if (isIsoEx) {
+      todayMaxDur = Math.max(...sets.map(s => s.duration || 0));
+      todayTotalDur = sets.reduce((sum, s) => sum + (s.duration || 0), 0);
+      if (todayMaxDur > (oldPB.maxDuration?.duration || 0)) {
+        personalBest.maxDuration = { date: today, duration: todayMaxDur, sets };
+        newMaxPB = true;
+      }
+      if (todayTotalDur > (oldPB.totalTime?.totalDuration || 0)) {
+        personalBest.totalTime = { date: today, totalDuration: todayTotalDur, sets };
+        newVolumePB = true;
+      }
+    } else if (!isSwimEx) {
+      todayVolume = isJog
         ? sets.reduce((sum, s) => sum + ((s.weight || 0) * (s.reps || 0) / 60), 0)
         : sets.reduce((sum, s) => sum + (s.weight * (s.reps || 0)), 0);
-      const todayMax = Math.max(...sets.map(s => s.weight));
+      todayMax = Math.max(...sets.map(s => s.weight));
       if (todayVolume > 0 && todayVolume > (oldPB.volume?.totalVolume || 0)) {
         personalBest.volume = { date: today, totalVolume: todayVolume, sets };
         newVolumePB = true;
@@ -2286,24 +2353,34 @@ window.saveWorkout = async () => {
     saved++;
 
     if (newVolumePB) {
-      const prev = oldPB.volume?.totalVolume;
-      pbMessages.push(isJog ? {
-        title: `🏆 New Best Distance!`,
-        body: `5-Min Treadmill Jog\n${todayVolume.toFixed(2)} mi${prev ? ` (prev: ${prev.toFixed(2)} mi)` : ''}`
-      } : {
-        title: `🏆 New Volume PB!`,
-        body: `${ex.name}\n${todayVolume.toLocaleString()} lbs total${prev ? ` (prev: ${prev.toLocaleString()})` : ''}`
-      });
+      if (isIsoEx) {
+        const prev = oldPB.totalTime?.totalDuration;
+        pbMessages.push({ title: `🏆 New Total Time PB!`, body: `${ex.name}\n${todayTotalDur} sec total${prev ? ` (prev: ${prev} sec)` : ''}` });
+      } else {
+        const prev = oldPB.volume?.totalVolume;
+        pbMessages.push(isJog ? {
+          title: `🏆 New Best Distance!`,
+          body: `5-Min Treadmill Jog\n${todayVolume.toFixed(2)} mi${prev ? ` (prev: ${prev.toFixed(2)} mi)` : ''}`
+        } : {
+          title: `🏆 New Volume PB!`,
+          body: `${ex.name}\n${todayVolume.toLocaleString()} lbs total${prev ? ` (prev: ${prev.toLocaleString()})` : ''}`
+        });
+      }
     }
     if (newMaxPB && !newVolumePB) {
-      const prev = oldPB.maxWeight?.weight;
-      pbMessages.push(isJog ? {
-        title: `🏆 New Top Speed!`,
-        body: `5-Min Treadmill Jog\n${todayMax} mph${prev ? ` (prev: ${prev} mph)` : ''}`
-      } : {
-        title: `🏆 New Max Weight!`,
-        body: `${ex.name}\n${todayMax} lbs${prev ? ` (prev: ${prev} lbs)` : ''}`
-      });
+      if (isIsoEx) {
+        const prev = oldPB.maxDuration?.duration;
+        pbMessages.push({ title: `🏆 New Max Hold!`, body: `${ex.name}\n${todayMaxDur} sec${prev ? ` (prev: ${prev} sec)` : ''}` });
+      } else {
+        const prev = oldPB.maxWeight?.weight;
+        pbMessages.push(isJog ? {
+          title: `🏆 New Top Speed!`,
+          body: `5-Min Treadmill Jog\n${todayMax} mph${prev ? ` (prev: ${prev} mph)` : ''}`
+        } : {
+          title: `🏆 New Max Weight!`,
+          body: `${ex.name}\n${todayMax} lbs${prev ? ` (prev: ${prev} lbs)` : ''}`
+        });
+      }
     }
   }
 
@@ -4167,10 +4244,12 @@ function captureEditWorkoutInputs() {
   state.editWorkout.forEach((ex, ei) => {
     const wInps = list.querySelectorAll(`[data-ex="${ei}"][data-type="weight"]`);
     const rInps = list.querySelectorAll(`[data-ex="${ei}"][data-type="reps"]`);
+    const dInps = list.querySelectorAll(`[data-ex="${ei}"][data-type="duration"]`);
     if (wInps.length === 0) return;
     ex._enteredSets = Array.from(wInps).map((inp, si) => ({
-      weight: inp.value !== '' ? inp.value : null,
-      reps:   rInps[si]?.value !== '' ? rInps[si].value : null,
+      weight:   inp.value !== '' ? inp.value : null,
+      reps:     rInps[si]?.value !== '' ? rInps[si].value : null,
+      duration: dInps[si]?.value !== '' ? dInps[si].value : null,
     }));
     const tInp = list.querySelector(`[data-ex="${ei}"][data-type="swimtime"]`);
     if (tInp) ex.sessionTime = parseSwimTime(tInp.value) || 0;
@@ -4199,6 +4278,7 @@ function renderEditExerciseList(exercises) {
     const lastSession = hist?.sessions?.filter(s => s.date !== state.editDate).slice(-1)[0];
     const isJog  = !!(ex.isJog);
     const isSwim = !!(ex.isSwim || ex.name === 'Swimming');
+    const isIso  = ISOMETRIC_EXERCISES.has(ex.name);
     let subtitleHTML = '';
     if (lastSession) {
       const dl = new Date(lastSession.date+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'});
@@ -4208,6 +4288,9 @@ function renderEditExerciseList(exercises) {
         subtitleHTML = `<div style="font-size:11px;color:var(--muted);margin-top:2px">Last: ${dl} · ${tot} lengths${editSwimTimeStr}</div>`;
       } else if (isJog) {
         subtitleHTML = `<div style="font-size:11px;color:var(--muted);margin-top:2px">Last: ${dl} · ${lastSession.sets[0]?.weight} mph</div>`;
+      } else if (isIso) {
+        const maxDur = Math.max(...lastSession.sets.map(s => s.duration || 0));
+        subtitleHTML = `<div style="font-size:11px;color:var(--muted);margin-top:2px">Last: ${dl} · ${maxDur} sec max hold</div>`;
       } else {
         subtitleHTML = `<div style="font-size:11px;color:var(--muted);margin-top:2px">Last: ${dl} · ${lastSession.sets.map(s=>s.weight).join('/')} lbs</div>`;
       }
@@ -4241,6 +4324,7 @@ function renderEditExerciseList(exercises) {
       const sessSet = existingSession?.sets?.[si];
       const lastW = entered?.weight ?? sessSet?.weight ?? ex.suggestedWeight ?? '';
       const lastR = entered?.reps   ?? sessSet?.reps   ?? (isJog ? 5 : isSwim ? 20 : parseInt(ex.repsRange?.split('-')[0])||10);
+      const lastD = entered?.duration ?? sessSet?.duration ?? 60;
       if (isSwim) {
         const strokes = ['Freestyle','Backstroke','Breaststroke','Butterfly','Mixed'];
         const strokeVal = String(lastW) || 'Freestyle';
@@ -4254,6 +4338,20 @@ function renderEditExerciseList(exercises) {
               <select class="set-input" data-ex="${ei}" data-set="${si}" data-type="weight" style="height:40px;font-size:12px;padding:0 6px;background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:var(--radius-sm)">
                 ${strokes.map(s=>`<option value="${s}"${strokeVal===s?' selected':''}>${s}</option>`).join('')}
               </select></div>
+          </div></div>
+          <button class="set-done-btn" onclick="toggleSetDone(this)">✓</button>
+        </div>`;
+      }
+      if (isIso) {
+        return `<div class="set-row">
+          <div class="set-label">Set ${si+1}</div>
+          <div class="set-input-group"><div class="set-inputs">
+            <div><div class="set-input-label">DURATION</div>
+              <input class="set-input" type="number" step="1" value="${lastD}" placeholder="60" data-ex="${ei}" data-set="${si}" data-type="duration">
+              <div class="set-input-unit">sec</div></div>
+            <div><div class="set-input-label">WEIGHT</div>
+              <input class="set-input" type="number" step="1" value="${lastW}" placeholder="${lastW||0}" data-ex="${ei}" data-set="${si}" data-type="weight">
+              <div class="set-input-unit">${ex.unit||'lbs'}</div></div>
           </div></div>
           <button class="set-done-btn" onclick="toggleSetDone(this)">✓</button>
         </div>`;
@@ -4348,8 +4446,21 @@ window.updateEditSwimTotal = (ei) => {
   paceEl.textContent = `${perLap.toFixed(1)} sec/lap · ${fmtSwimTime(per100m)}/100m · ${fmtSwimTime(per100m * 5)}/500m`;
 };
 
-function recalcPB(sessions, isJog, isSwim) {
+function recalcPB(sessions, isJog, isSwim, isIso) {
   if (isSwim || !sessions.length) return {};
+  if (isIso) {
+    let bestMaxDur = 0, bestTotalDur = 0, maxDurSess = null, totalTimeSess = null;
+    sessions.forEach(sess => {
+      const maxDur = Math.max(...sess.sets.map(x => x.duration || 0));
+      const totalDur = sess.sets.reduce((s,x) => s + (x.duration || 0), 0);
+      if (maxDur > bestMaxDur) { bestMaxDur = maxDur; maxDurSess = sess; }
+      if (totalDur > bestTotalDur) { bestTotalDur = totalDur; totalTimeSess = sess; }
+    });
+    const pb = {};
+    if (maxDurSess && bestMaxDur > 0) pb.maxDuration = { date: maxDurSess.date, duration: bestMaxDur, sets: maxDurSess.sets };
+    if (totalTimeSess && bestTotalDur > 0) pb.totalTime = { date: totalTimeSess.date, totalDuration: bestTotalDur, sets: totalTimeSess.sets };
+    return pb;
+  }
   let bestVol = 0, bestMax = 0, volSess = null, maxSess = null;
   sessions.forEach(sess => {
     const vol = isJog
@@ -4374,7 +4485,8 @@ window.saveEditWorkout = async () => {
   const editLoggedSetsMap = {}; // { exerciseName: [logged sets] } — for watch doc
   for (let ei = 0; ei < state.editWorkout.length; ei++) {
     const ex = state.editWorkout[ei];
-    const isSwimEx = !!(ex.isSwim || ex.name === 'Swimming');
+    const isSwimEx  = !!(ex.isSwim || ex.name === 'Swimming');
+    const isIsoEdit = ISOMETRIC_EXERCISES.has(ex.name);
     const weightInputs = list.querySelectorAll(`[data-ex="${ei}"][data-type="weight"]`);
     const repInputs    = list.querySelectorAll(`[data-ex="${ei}"][data-type="reps"]`);
     const sets = [];
@@ -4383,6 +4495,13 @@ window.saveEditWorkout = async () => {
         const stroke = inp.value || 'Freestyle';
         const lengths = parseInt(repInputs[si]?.value);
         if (!isNaN(lengths) && lengths > 0) sets.push({ set:si+1, weight:stroke, reps:lengths });
+      });
+    } else if (isIsoEdit) {
+      const durationInputs = list.querySelectorAll(`[data-ex="${ei}"][data-type="duration"]`);
+      weightInputs.forEach((inp,si) => {
+        const weight = parseFloat(inp.value) || 0;
+        const dur = parseInt(durationInputs[si]?.value);
+        if (!isNaN(dur) && dur > 0) sets.push({ set:si+1, weight, duration:dur });
       });
     } else {
       weightInputs.forEach((inp,si) => {
@@ -4401,7 +4520,7 @@ window.saveEditWorkout = async () => {
     const editSession = { date, sets };
     if (sessionTimeEdit > 0) editSession.sessionTime = sessionTimeEdit;
     sessions.push(editSession);
-    const personalBest = recalcPB(sessions, !!(ex.isJog), isSwimEx);
+    const personalBest = recalcPB(sessions, !!(ex.isJog), isSwimEx, isIsoEdit);
     await fbSet(path, { sessions, personalBest });
     state.exerciseHistory[ex.name] = { sessions, personalBest };
     saved++;
@@ -4814,6 +4933,11 @@ window.selectCalDay = async (ds) => {
 };
 
 function formatSetSummary(exName, set) {
+  if (ISOMETRIC_EXERCISES.has(exName)) {
+    return set.weight > 0
+      ? `Set ${set.set}: ${set.weight} lbs × ${set.duration||'?'} sec`
+      : `Set ${set.set}: ${set.duration||'?'} sec`;
+  }
   if (/jog|treadmill/i.test(exName)) {
     return `Set ${set.set}: ${set.weight} mph × ${set.reps||'?'} min`;
   }
@@ -4837,37 +4961,53 @@ window.lookupExerciseHistory = () => {
 
   const sessions = [...hist.sessions].sort((a,b) => a.date.localeCompare(b.date));
   const pb = hist.personalBest;
+  const isIsoEx = ISOMETRIC_EXERCISES.has(name);
   let html = '';
 
   // PB badges
-  if (pb?.volume || pb?.maxWeight) {
+  if (isIsoEx ? (pb?.maxDuration || pb?.totalTime) : (pb?.volume || pb?.maxWeight)) {
     html += `<div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">`;
-    if (pb.volume) {
-      const d = new Date(pb.volume.date+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'});
-      html += `<div style="background:#1a1a1a;border-radius:8px;padding:8px 12px;font-size:12px;flex:1"><div style="color:#ff5c1a;font-weight:700;margin-bottom:2px">🏆 Volume PB</div><div style="font-size:15px;font-weight:800">${pb.volume.totalVolume.toLocaleString()} lbs</div><div style="color:var(--muted)">${d}</div></div>`;
-    }
-    if (pb.maxWeight) {
-      const d = new Date(pb.maxWeight.date+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'});
-      html += `<div style="background:#1a1a1a;border-radius:8px;padding:8px 12px;font-size:12px;flex:1"><div style="color:#ff5c1a;font-weight:700;margin-bottom:2px">🏆 Max Weight</div><div style="font-size:15px;font-weight:800">${pb.maxWeight.weight} lbs</div><div style="color:var(--muted)">${d}</div></div>`;
+    if (isIsoEx) {
+      if (pb.maxDuration) {
+        const d = new Date(pb.maxDuration.date+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'});
+        html += `<div style="background:#1a1a1a;border-radius:8px;padding:8px 12px;font-size:12px;flex:1"><div style="color:#ff5c1a;font-weight:700;margin-bottom:2px">🏆 Max Hold</div><div style="font-size:15px;font-weight:800">${pb.maxDuration.duration} sec</div><div style="color:var(--muted)">${d}</div></div>`;
+      }
+      if (pb.totalTime) {
+        const d = new Date(pb.totalTime.date+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'});
+        html += `<div style="background:#1a1a1a;border-radius:8px;padding:8px 12px;font-size:12px;flex:1"><div style="color:#ff5c1a;font-weight:700;margin-bottom:2px">🏆 Total Time</div><div style="font-size:15px;font-weight:800">${pb.totalTime.totalDuration} sec</div><div style="color:var(--muted)">${d}</div></div>`;
+      }
+    } else {
+      if (pb.volume) {
+        const d = new Date(pb.volume.date+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'});
+        html += `<div style="background:#1a1a1a;border-radius:8px;padding:8px 12px;font-size:12px;flex:1"><div style="color:#ff5c1a;font-weight:700;margin-bottom:2px">🏆 Volume PB</div><div style="font-size:15px;font-weight:800">${pb.volume.totalVolume.toLocaleString()} lbs</div><div style="color:var(--muted)">${d}</div></div>`;
+      }
+      if (pb.maxWeight) {
+        const d = new Date(pb.maxWeight.date+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'});
+        html += `<div style="background:#1a1a1a;border-radius:8px;padding:8px 12px;font-size:12px;flex:1"><div style="color:#ff5c1a;font-weight:700;margin-bottom:2px">🏆 Max Weight</div><div style="font-size:15px;font-weight:800">${pb.maxWeight.weight} lbs</div><div style="color:var(--muted)">${d}</div></div>`;
+      }
     }
     html += `</div>`;
   }
 
   // SVG line chart
   if (sessions.length > 0) {
-    const maxWeights = sessions.map(s => Math.max(...s.sets.map(set => set.weight)));
-    const minW = Math.min(...maxWeights), maxW = Math.max(...maxWeights);
+    const chartVals = isIsoEx
+      ? sessions.map(s => Math.max(...s.sets.map(set => set.duration || 0)))
+      : sessions.map(s => Math.max(...s.sets.map(set => parseFloat(set.weight) || 0)));
+    const chartLabel = isIsoEx ? 'MAX HOLD PER SESSION' : 'MAX WEIGHT PER SESSION';
+    const chartUnit  = isIsoEx ? 'sec' : 'lbs';
+    const minW = Math.min(...chartVals), maxW = Math.max(...chartVals);
     const range = maxW - minW || 1;
     const W = 320, H = 72, PX = 12, PY = 8;
-    const pts = maxWeights.map((w,i) => {
+    const pts = chartVals.map((w,i) => {
       const x = PX + (sessions.length < 2 ? (W-PX*2)/2 : (i/(sessions.length-1))*(W-PX*2));
       const y = PY + (1-(w-minW)/range)*(H-PY*2);
       return [x,y];
     });
     const polyline = pts.map(p=>p.join(',')).join(' ');
-    const dots = pts.map((p,i) => `<circle cx="${p[0]}" cy="${p[1]}" r="3.5" fill="#ff5c1a"/><title>${maxWeights[i]} lbs</title>`).join('');
+    const dots = pts.map((p,i) => `<circle cx="${p[0]}" cy="${p[1]}" r="3.5" fill="#ff5c1a"/><title>${chartVals[i]} ${chartUnit}</title>`).join('');
     html += `<div style="background:#111;border-radius:8px;padding:10px;margin-bottom:12px">
-      <div style="font-size:10px;color:var(--muted);letter-spacing:1px;margin-bottom:6px">MAX WEIGHT PER SESSION</div>
+      <div style="font-size:10px;color:var(--muted);letter-spacing:1px;margin-bottom:6px">${chartLabel}</div>
       <svg viewBox="0 0 ${W} ${H}" width="100%" style="overflow:visible">
         <polyline points="${polyline}" fill="none" stroke="#ff5c1a" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
         ${dots}
@@ -4890,6 +5030,10 @@ window.lookupExerciseHistory = () => {
       const dur = s.sets[0]?.reps || 0;
       const spd = s.sets[0]?.weight || 0;
       summary = `${spd} mph · ${dur} min`;
+    } else if (isIsoEx) {
+      const totalDur = s.sets.reduce((sum,set)=>sum+(set.duration||0),0);
+      const maxDur = Math.max(...s.sets.map(set=>set.duration||0));
+      summary = `Total ${totalDur} sec · Max hold ${maxDur} sec`;
     } else {
       const vol = s.sets.reduce((sum,set)=>sum+(parseFloat(set.weight)||0)*(set.reps||0),0);
       const maxW = Math.max(...s.sets.map(set=>parseFloat(set.weight)||0));
