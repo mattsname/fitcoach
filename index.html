@@ -1984,7 +1984,7 @@ function renderExerciseList(exercises) {
     const history = state.exerciseHistory[ex.name];
     const lastSession = history?.sessions?.slice(-1)[0];
 
-    const isJog  = !!(ex.isJog);
+    const isJog  = !!(ex.isJog) || /jog|treadmill/i.test(ex.name || '');
     const isSwim = !!(ex.isSwim || ex.name === 'Swimming');
     const isIso  = ISOMETRIC_EXERCISES.has(ex.name);
     let subtitleHTML = '';
@@ -2205,7 +2205,7 @@ window.addSet = (ei) => {
   const lastW = lastWeightInp?.value || ex.suggestedWeight || '';
   const div = document.createElement('div');
   div.className = 'set-row';
-  const isJog = !!(ex.isJog);
+  const isJog = !!(ex.isJog) || /jog|treadmill/i.test(ex.name || '');
   const isIsoAdd = ISOMETRIC_EXERCISES.has(ex.name);
   if (isIsoAdd) {
     div.innerHTML = `
@@ -2316,7 +2316,7 @@ window.saveWorkout = async () => {
     sessions.push(newSession);
 
     // Calculate today's stats — jog uses speed×duration=distance, others use weight×reps=volume
-    const isJog = !!(ex.isJog);
+    const isJog = !!(ex.isJog) || /jog|treadmill/i.test(ex.name || '');
     // Swimming uses stroke strings as weight — skip numeric PB calculations
     const oldPB = existing.personalBest || {};
     const personalBest = { ...oldPB };
@@ -4276,7 +4276,7 @@ function renderEditExerciseList(exercises) {
     const hist = state.exerciseHistory[ex.name];
     const existingSession = hist?.sessions?.find(s => s.date === state.editDate);
     const lastSession = hist?.sessions?.filter(s => s.date !== state.editDate).slice(-1)[0];
-    const isJog  = !!(ex.isJog);
+    const isJog  = !!(ex.isJog) || /jog|treadmill/i.test(ex.name || '');
     const isSwim = !!(ex.isSwim || ex.name === 'Swimming');
     const isIso  = ISOMETRIC_EXERCISES.has(ex.name);
     let subtitleHTML = '';
