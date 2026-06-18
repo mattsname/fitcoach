@@ -1504,6 +1504,39 @@ function buildWatchWorkoutDoc(exercises, type, date, { startTime, loggedSetsMap 
   return watchDoc;
 }
 
+// Rewrites workouts/{today} after any in-workout edit (remove / add exercise).
+// Reads the existing doc first so already-logged sets are preserved for exercises that remain.
+// Fire-and-forget: callers don't await this.
+async function syncTodayWorkoutToWatch() {
+  if (!state.uid || !state.currentWorkout) return;
+  const today = todayStr();
+  const sched = getSchedule();
+  const dow = selectedDay !== null ? selectedDay : new Date().getDay();
+  const wType = sched[dow]?.label || '';
+  const startTime = document.getElementById('workoutStartTime')?.value || '';
+
+  // Read current doc to preserve already-logged sets for exercises that survive the edit
+  const existing = await fbGet(`users/${state.uid}/workouts/${today}`);
+  const loggedSetsMap = {};
+  if (existing) {
+    (existing.exercises || []).forEach(ex => {
+      if (ex.name && ex.sets && ex.sets.length > 0) {
+        loggedSetsMap[ex.name] = ex.sets;
+      }
+    });
+    // Carry forward startTime if not overridden in the UI
+    if (!startTime && existing.startTime) {
+      await fbSet(`users/${state.uid}/workouts/${today}`,
+        buildWatchWorkoutDoc(state.currentWorkout, wType, today,
+          { startTime: existing.startTime, loggedSetsMap }));
+      return;
+    }
+  }
+
+  await fbSet(`users/${state.uid}/workouts/${today}`,
+    buildWatchWorkoutDoc(state.currentWorkout, wType, today, { startTime, loggedSetsMap }));
+}
+
 async function loadUserData() {
   if (!state.uid) { console.log('[FitCoach] loadUserData: no uid, skipping'); return; }
   const base = `users/${state.uid}`;
@@ -2102,6 +2135,7 @@ window.deleteExercise = (idx) => {
   captureWorkoutInputs();
   state.currentWorkout.splice(idx, 1);
   renderExerciseList(state.currentWorkout);
+  syncTodayWorkoutToWatch();
 };
 
 window.toggleSetDone = (btn) => {
@@ -2181,6 +2215,7 @@ window.addExercise = () => {
   });
   select.value = '';
   renderExerciseList(state.currentWorkout);
+  syncTodayWorkoutToWatch();
 };
 
 window.saveWorkout = async () => {
