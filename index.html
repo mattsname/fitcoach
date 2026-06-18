@@ -4962,6 +4962,7 @@ window.lookupExerciseHistory = () => {
   const sessions = [...hist.sessions].sort((a,b) => a.date.localeCompare(b.date));
   const pb = hist.personalBest;
   const isIsoEx = ISOMETRIC_EXERCISES.has(name);
+  const isJogEx = /jog|treadmill/i.test(name);
   let html = '';
 
   // PB badges
@@ -4975,6 +4976,15 @@ window.lookupExerciseHistory = () => {
       if (pb.totalTime) {
         const d = new Date(pb.totalTime.date+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'});
         html += `<div style="background:#1a1a1a;border-radius:8px;padding:8px 12px;font-size:12px;flex:1"><div style="color:#ff5c1a;font-weight:700;margin-bottom:2px">🏆 Total Time</div><div style="font-size:15px;font-weight:800">${pb.totalTime.totalDuration} sec</div><div style="color:var(--muted)">${d}</div></div>`;
+      }
+    } else if (isJogEx) {
+      if (pb.volume) {
+        const d = new Date(pb.volume.date+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'});
+        html += `<div style="background:#1a1a1a;border-radius:8px;padding:8px 12px;font-size:12px;flex:1"><div style="color:#ff5c1a;font-weight:700;margin-bottom:2px">🏆 Best Distance</div><div style="font-size:15px;font-weight:800">${pb.volume.totalVolume.toFixed(2)} mi</div><div style="color:var(--muted)">${d}</div></div>`;
+      }
+      if (pb.maxWeight) {
+        const d = new Date(pb.maxWeight.date+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'});
+        html += `<div style="background:#1a1a1a;border-radius:8px;padding:8px 12px;font-size:12px;flex:1"><div style="color:#ff5c1a;font-weight:700;margin-bottom:2px">🏆 Top Speed</div><div style="font-size:15px;font-weight:800">${pb.maxWeight.weight} mph</div><div style="color:var(--muted)">${d}</div></div>`;
       }
     } else {
       if (pb.volume) {
@@ -4994,8 +5004,8 @@ window.lookupExerciseHistory = () => {
     const chartVals = isIsoEx
       ? sessions.map(s => Math.max(...s.sets.map(set => set.duration || 0)))
       : sessions.map(s => Math.max(...s.sets.map(set => parseFloat(set.weight) || 0)));
-    const chartLabel = isIsoEx ? 'MAX HOLD PER SESSION' : 'MAX WEIGHT PER SESSION';
-    const chartUnit  = isIsoEx ? 'sec' : 'lbs';
+    const chartLabel = isIsoEx ? 'MAX HOLD PER SESSION' : isJogEx ? 'MAX SPEED PER SESSION' : 'MAX WEIGHT PER SESSION';
+    const chartUnit  = isIsoEx ? 'sec' : isJogEx ? 'mph' : 'lbs';
     const minW = Math.min(...chartVals), maxW = Math.max(...chartVals);
     const range = maxW - minW || 1;
     const W = 320, H = 72, PX = 12, PY = 8;
@@ -5020,7 +5030,6 @@ window.lookupExerciseHistory = () => {
   // Session list newest first
   html += [...sessions].reverse().map(s => {
     const d = new Date(s.date+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
-    const isJogEx  = /jog|treadmill/i.test(name);
     const isSwimEx = name === 'Swimming';
     let summary;
     if (isSwimEx) {
