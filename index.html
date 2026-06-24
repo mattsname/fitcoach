@@ -1389,6 +1389,25 @@ const ISOMETRIC_EXERCISES = new Set([
   'Plank',
 ]);
 
+const debounce = (fn, ms) => {
+  let timeout;
+  return (...args) => { clearTimeout(timeout); timeout = setTimeout(() => fn(...args), ms); };
+};
+
+// Snapshots DOM → _enteredSets and checkpoints to Firestore.
+// Does NOT write exerciseHistory — that only happens on explicit Save Workout.
+const autoSaveWorkout = debounce(() => {
+  captureWorkoutInputs();
+  syncTodayWorkoutToWatch();
+}, 300);
+
+function attachAutoSaveListeners() {
+  document.querySelectorAll('[data-type="weight"],[data-type="reps"],[data-type="duration"]').forEach(inp => {
+    inp.removeEventListener('change', autoSaveWorkout);
+    inp.addEventListener('change', autoSaveWorkout);
+  });
+}
+
 function prependJogIfGymDay(exercises, scheduleType) {
   const type = (scheduleType || '').toLowerCase();
   if (type !== 'push' && type !== 'pull' && type !== 'legs') return exercises;
@@ -2147,6 +2166,7 @@ function renderExerciseList(exercises) {
     <button onclick="saveWorkout()" style="width:100%;margin-top:14px;background:#3dffc0;border:none;border-radius:10px;color:#000;font-weight:800;font-size:16px;padding:13px;font-family:'Barlow Condensed',sans-serif;cursor:pointer;letter-spacing:0.5px;">💾 Save Workout</button>`;
 
   list.innerHTML = cards + addExerciseUI + saveBtn;
+  attachAutoSaveListeners();
 }
 
 window.toggleExercise = (idx) => {
@@ -2241,6 +2261,7 @@ window.addSet = (ei) => {
     <button class="set-done-btn" data-ex="${ei}" data-set="${si}" onclick="toggleSetDone(this)">✓</button>`;
   }
   detail.querySelector('.add-set-btn').before(div);
+  attachAutoSaveListeners();
 };
 
 window.addExercise = () => {
