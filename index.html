@@ -377,6 +377,15 @@ textarea { resize: none; }
   transition: all 0.2s; flex-shrink: 0;
 }
 .set-done-btn.done { border-color: var(--green); background: rgba(61,255,192,0.1); color: var(--green); }
+.set-delete-btn {
+  width: 34px; height: 34px; border-radius: 50%;
+  border: 2px solid #ff5c1a;
+  background: none; color: #ff5c1a;
+  cursor: pointer; font-size: 18px; line-height: 1;
+  display: flex; align-items: center; justify-content: center;
+  transition: all 0.2s; flex-shrink: 0; margin-left: 4px;
+}
+.set-delete-btn:hover { background: rgba(255,92,26,0.15); }
 
 /* ── WEEK STRIP ── */
 .week-strip {
@@ -2084,6 +2093,7 @@ function renderExerciseList(exercises) {
           </div>
         </div>
         <button class="set-done-btn" data-ex="${ei}" data-set="${si}" onclick="toggleSetDone(this)">✓</button>
+        <button class="set-delete-btn" onclick="deleteSet(${ei},${si})">−</button>
       </div>`;
       }
       if (isIso) {
@@ -2105,6 +2115,7 @@ function renderExerciseList(exercises) {
           </div>
         </div>
         <button class="set-done-btn" data-ex="${ei}" data-set="${si}" onclick="toggleSetDone(this)">✓</button>
+        <button class="set-delete-btn" onclick="deleteSet(${ei},${si})">−</button>
       </div>`;
       }
       const col1Label = isJog ? 'DURATION' : 'REPS';
@@ -2129,6 +2140,7 @@ function renderExerciseList(exercises) {
           </div>
         </div>
         <button class="set-done-btn" data-ex="${ei}" data-set="${si}" onclick="toggleSetDone(this)">✓</button>
+        <button class="set-delete-btn" onclick="deleteSet(${ei},${si})">−</button>
       </div>`;
     }).join('');
 
@@ -2180,6 +2192,16 @@ window.deleteExercise = (idx) => {
   if (!confirm(`Remove ${ex.name}?`)) return;
   captureWorkoutInputs();
   state.currentWorkout.splice(idx, 1);
+  renderExerciseList(state.currentWorkout);
+  syncTodayWorkoutToWatch();
+};
+
+window.deleteSet = (exIdx, setIdx) => {
+  if (!state.currentWorkout?.[exIdx]) return;
+  const ex = state.currentWorkout[exIdx];
+  captureWorkoutInputs();
+  if (ex._enteredSets) ex._enteredSets.splice(setIdx, 1);
+  ex.sets = Math.max(1, (ex.sets || 1) - 1);
   renderExerciseList(state.currentWorkout);
   syncTodayWorkoutToWatch();
 };
@@ -2242,7 +2264,8 @@ window.addSet = (ei) => {
         <div class="set-input-unit">${ex.unit||'lbs'}</div>
       </div>
     </div></div>
-    <button class="set-done-btn" data-ex="${ei}" data-set="${si}" onclick="toggleSetDone(this)">✓</button>`;
+    <button class="set-done-btn" data-ex="${ei}" data-set="${si}" onclick="toggleSetDone(this)">✓</button>
+    <button class="set-delete-btn" onclick="deleteSet(${ei},${si})">−</button>`;
   } else {
     div.innerHTML = `
     <div class="set-label">Set ${si+1}</div>
@@ -2258,7 +2281,8 @@ window.addSet = (ei) => {
         <div class="set-input-unit">${isJog ? 'mph' : (ex.unit||'lbs')}</div>
       </div>
     </div></div>
-    <button class="set-done-btn" data-ex="${ei}" data-set="${si}" onclick="toggleSetDone(this)">✓</button>`;
+    <button class="set-done-btn" data-ex="${ei}" data-set="${si}" onclick="toggleSetDone(this)">✓</button>
+    <button class="set-delete-btn" onclick="deleteSet(${ei},${si})">−</button>`;
   }
   detail.querySelector('.add-set-btn').before(div);
   attachAutoSaveListeners();
