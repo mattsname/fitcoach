@@ -1381,6 +1381,26 @@ input[type="file"] { display: none; }
         <div id="swimHistoryList" style="display:flex;flex-direction:column;gap:4px"></div>
       </div>
 
+      <!-- Swim Coach Chat -->
+      <div style="height:1px;background:#1a1a1a;margin:16px 0;"></div>
+      <div class="section-sep">Swim Coach</div>
+
+      <div id="swim-chat-history" style="max-height:320px;overflow-y:auto;background:#111;border-radius:10px;border:1px solid #1a1a1a;padding:10px;display:flex;flex-direction:column;gap:8px;margin:10px 0;min-height:60px;">
+        <div style="color:var(--muted);font-size:12px;text-align:center">Import a swim to start coaching, or ask a question below.</div>
+      </div>
+
+      <div class="quick-chips" style="margin:6px 0 8px">
+        <div class="chip" onclick="swimQuickAsk('How was my swim?')">How was my swim?</div>
+        <div class="chip" onclick="swimQuickAsk('What should I work on?')">What should I work on?</div>
+        <div class="chip" onclick="swimQuickAsk('Compare to last swim')">Compare to last swim</div>
+        <div class="chip" onclick="swimQuickAsk('Plan my next session')">Plan my next session</div>
+      </div>
+
+      <div style="display:flex;gap:8px;">
+        <textarea id="swimChatInput" placeholder="Ask your swim coach..." rows="1" style="flex:1;background:#111;border:1px solid #333;border-radius:8px;color:#eee;padding:8px 12px;font-size:14px;resize:none;font-family:'Barlow Condensed',sans-serif;" oninput="this.style.height='auto';this.style.height=this.scrollHeight+'px'" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendSwimChat();}"></textarea>
+        <button onclick="sendSwimChat()" style="background:#5ab4ff;border:none;border-radius:8px;color:#000;font-weight:700;padding:8px 16px;font-family:'Barlow Condensed',sans-serif;font-size:16px;cursor:pointer;">&#10148;</button>
+      </div>
+
     </div>
 
   </div><!-- end scroll area -->
@@ -1525,7 +1545,12 @@ let state = {
   editWorkout: null,
   editDate: null,
   swims: {},
+  swimChatHistory: [],
+  swimCoachMemory: [],
+  swimCoachReplyCount: 0,
 };
+
+window.__fc = { get state() { return state; }, saveProfile };
 
 let weightChartInst = null, weightChartBigInst = null;
 
@@ -1657,6 +1682,7 @@ async function loadUserData() {
     state.profile = profile;
     if (profile.customSchedule) state.customSchedule = profile.customSchedule;
     if (profile.coachMemory) state.coachMemory = profile.coachMemory;
+    if (profile.swimCoachMemory) state.swimCoachMemory = profile.swimCoachMemory;
     // Restore Gemini API key from Firebase so it works on any device without re-entry
     if (profile.apiKey && !state.apiKey) {
       state.apiKey = profile.apiKey;
@@ -2131,7 +2157,8 @@ window.importSwimCsv = async (input) => {
 
   if (!state.uid) { showToast('Sign in to save swim sessions'); return; }
 
-  if (state.swims[swim.docDate]) {
+  const isOverwrite = !!state.swims[swim.docDate];
+  if (isOverwrite) {
     if (!confirm(`A swim session for ${swim.docDate} already exists. Overwrite?`)) return;
   }
 
@@ -2141,7 +2168,12 @@ window.importSwimCsv = async (input) => {
 
   showToast(`Swim imported: ${swim.summary.totalDist}m on ${swim.docDate}`);
   renderSwimPanel(swim.docDate);
-  renderTodayWorkout(); // refresh Today tab redirect card if it was a swim day
+  renderTodayWorkout();
+
+  // Auto-debrief for new imports only (not overwrites)
+  if (!isOverwrite) {
+    setTimeout(() => swimCoachDebrief(swim.docDate), 300);
+  }
 };
 
 let swimTabMetric = 'dist';
@@ -2279,6 +2311,273 @@ window.selectSwimSession = (date) => {
   renderSwimHistoryChart();
   renderSwimSessionList();
 };
+
+// ── SWIM COACH ───────────────────────────────────────────────
+
+function buildSwimDataContext() {
+  const dates = Object.keys(state.swims).sort();
+  if (dates.length === 0) return 'NO SWIM DATA YET. The user has not imported any swim sessions. You can still chat about swim technique and training in general.';
+
+  const latestDate = dates[dates.length - 1];
+  const latest = state.swims[latestDate];
+  const ls = latest.summary;
+
+  // Latest swim full detail
+  let ctx = `LATEST SWIM (${latestDate}):\n`;
+  ctx += `Distance: ${ls.totalDist}m | Lengths: ${ls.lengths} | Sets: ${ls.sets}\n`;
+  ctx += `Move time: ${fmtDur(ls.moveTime)} | Rest time: ${fmtDur(ls.restTime)} | Total: ${fmtDur(ls.totalTime)}\n`;
+  ctx += `Avg pace/100m: ${fmtDur(ls.avgPace100)} | Best pace/100m: ${fmtDur(ls.bestPace100)}\n`;
+  ctx += `Avg SWOLF: ${ls.avgSWOLF > 0 ? ls.avgSWOLF.toFixed(1) : 'N/A'} | Avg DPS: ${ls.avgDPS > 0 ? ls.avgDPS.toFixed(2) + 'm' : 'N/A'}\n`;
+  ctx += `Avg stroke rate: ${ls.avgStrokeRate > 0 ? ls.avgStrokeRate.toFixed(1) + ' strk/min' : 'N/A'}\n`;
+  ctx += `Avg HR: ${ls.avgHR > 0 ? Math.round(ls.avgHR) + ' bpm' : 'N/A'} | Max HR: ${ls.maxHR > 0 ? ls.maxHR + ' bpm' : 'N/A'} | HR drift: ${ls.hrDrift !== null ? ls.hrDrift + ' bpm' : 'N/A'}\n`;
+  ctx += `Pool: ${latest.meta.poolSize}m | Time: ${latest.meta.startTime}–${latest.meta.endTime}\n`;
+
+  // Per-set breakdown (cap at 20)
+  const sets = (latest.sets || []).slice(0, 20);
+  if (sets.length > 0) {
+    ctx += `\nSET BREAKDOWN:\n`;
+    sets.forEach(st => {
+      ctx += `  Set ${st.setNum} (${st.structure}): ${st.dist}m, pace ${fmtDur(st.avgPace100)}/100m, SWOLF ${st.avgSWOLF > 0 ? st.avgSWOLF.toFixed(0) : '—'}, HR ${st.avgHR > 0 ? Math.round(st.avgHR) : '—'}, rest ${Math.round(st.restAfter)}s\n`;
+    });
+  }
+
+  // Previous swims (last 5 before latest)
+  const prevDates = dates.slice(Math.max(0, dates.length - 6), dates.length - 1).reverse();
+  if (prevDates.length > 0) {
+    ctx += `\nPREVIOUS SWIMS:\n`;
+    prevDates.forEach(d => {
+      const s = state.swims[d].summary;
+      ctx += `  ${d}: ${s.totalDist}m, ${fmtDur(s.moveTime)} move, pace ${fmtDur(s.avgPace100)}/100m, SWOLF ${s.avgSWOLF > 0 ? s.avgSWOLF.toFixed(1) : '—'}, DPS ${s.avgDPS > 0 ? s.avgDPS.toFixed(2) : '—'}, HR ${s.avgHR > 0 ? Math.round(s.avgHR) : '—'}, drift ${s.hrDrift !== null ? s.hrDrift : '—'}\n`;
+    });
+
+    // Trend hints (vs immediately previous swim)
+    const prevDate = prevDates[0];
+    const prev = state.swims[prevDate].summary;
+    const paceDelta = ls.avgPace100 - prev.avgPace100;
+    const swolfDelta = ls.avgSWOLF - prev.avgSWOLF;
+    const distDelta = ls.totalDist - prev.totalDist;
+    ctx += `\nTREND vs PREVIOUS (${prevDate}):\n`;
+    ctx += `  Pace: ${paceDelta > 0 ? '+' : ''}${paceDelta.toFixed(1)}s/100m (${paceDelta < 0 ? 'faster' : paceDelta > 0 ? 'slower' : 'same'})\n`;
+    ctx += `  SWOLF: ${swolfDelta > 0 ? '+' : ''}${swolfDelta.toFixed(1)} (${swolfDelta < 0 ? 'improved' : swolfDelta > 0 ? 'worse' : 'same'})\n`;
+    ctx += `  Distance: ${distDelta > 0 ? '+' : ''}${distDelta}m\n`;
+  }
+
+  return ctx;
+}
+
+function buildSwimSystemPrompt() {
+  const memoryBlock = state.swimCoachMemory.length
+    ? `\nPERSISTENT SWIM MEMORY (always respect these):\n${state.swimCoachMemory.map(m => '- ' + m).join('\n')}`
+    : '';
+
+  const weightRecent = state.weightLog.slice(-7);
+  const weightLine = weightRecent.length > 0
+    ? `Recent weight: ${weightRecent[weightRecent.length - 1].weight} lbs (${weightRecent.length > 1 ? (weightRecent[weightRecent.length - 1].weight - weightRecent[0].weight > 0 ? '+' : '') + (weightRecent[weightRecent.length - 1].weight - weightRecent[0].weight).toFixed(1) + ' lbs over ' + weightRecent.length + ' days' : 'single entry'})`
+    : '';
+
+  return `You are Matt's dedicated swim coach. Expert in freestyle technique for a 43-year-old male swimming in a 25m pool, 2–3 times per week, typical session ~1500m. You are NOT the gym or nutrition coach — stay focused on swimming.
+
+STYLE: Direct, specific, metric-grounded. Every substantive reply must reference actual numbers from the data provided. Give 1–2 concrete focus points per swim. No generic filler, no "Great swim!" without backing it up with data. End coaching replies with one clear "NEXT SWIM FOCUS:" when appropriate.
+
+METRICS YOU TRACK: Pace/100m (lower=faster), SWOLF (lower=more efficient, = time + strokes per length), DPS (distance per stroke, higher=better glide), HR drift (positive=cardiac drift indicating fatigue), stroke rate (strokes/min).
+${memoryBlock}
+
+${buildSwimDataContext()}
+
+${weightLine ? '\nPROFILE: ' + weightLine + '. Calorie target: ' + (state.profile.calorieTarget || 2200) + ' kcal/day.' : ''}`;
+}
+
+// ── SWIM CHAT RENDERING ─────────────────────────────────────
+
+function renderSwimChat() {
+  const container = document.getElementById('swim-chat-history');
+  if (!container) return;
+  container.innerHTML = '';
+  if (state.swimChatHistory.length === 0) {
+    container.innerHTML = '<div style="color:var(--muted);font-size:12px;text-align:center">Import a swim to start coaching, or ask a question below.</div>';
+    return;
+  }
+  for (const msg of state.swimChatHistory) {
+    const text = msg.parts?.[0]?.text;
+    if (!text) continue;
+    const div = document.createElement('div');
+    if (msg.role === 'user') {
+      div.style.cssText = 'background:#5ab4ff;color:#000;align-self:flex-end;border-radius:12px 12px 4px 12px;padding:8px 12px;max-width:80%;font-size:14px;';
+    } else {
+      div.style.cssText = 'background:#1a1a1a;color:#eee;align-self:flex-start;border-radius:12px 12px 12px 4px;padding:8px 12px;max-width:80%;font-size:14px;';
+    }
+    div.innerHTML = msg.role === 'model' ? formatBriefing(text) : text;
+    container.appendChild(div);
+  }
+  container.scrollTop = container.scrollHeight;
+}
+
+function showSwimTyping() {
+  const container = document.getElementById('swim-chat-history');
+  if (!container) return;
+  const div = document.createElement('div');
+  div.className = 'typing'; div.id = 'swim-typing';
+  div.innerHTML = '<span></span><span></span><span></span>';
+  div.style.cssText = 'background:#1a1a1a;align-self:flex-start;border-radius:12px;padding:8px 12px;';
+  container.appendChild(div);
+  container.scrollTop = container.scrollHeight;
+}
+
+function hideSwimTyping() { document.getElementById('swim-typing')?.remove(); }
+
+// ── SWIM CHAT SEND ──────────────────────────────────────────
+
+window.swimQuickAsk = (text) => {
+  const input = document.getElementById('swimChatInput');
+  if (input) { input.value = text; }
+  sendSwimChat();
+};
+
+window.sendSwimChat = async () => {
+  const input = document.getElementById('swimChatInput');
+  const text = (input?.value || '').trim();
+  if (!text) return;
+  input.value = '';
+  input.style.height = 'auto';
+  input.disabled = true;
+
+  state.swimChatHistory.push({ role: 'user', parts: [{ text }] });
+  renderSwimChat();
+  showSwimTyping();
+
+  try {
+    const reply = await callGemini(state.swimChatHistory, buildSwimSystemPrompt());
+    state.swimChatHistory.push({ role: 'model', parts: [{ text: reply }] });
+    hideSwimTyping();
+    renderSwimChat();
+
+    state.swimCoachReplyCount++;
+    console.log('[SwimCoach] replyCount:', state.swimCoachReplyCount);
+    if (state.swimCoachReplyCount % 2 === 0) updateSwimCoachMemory();
+  } catch(e) {
+    hideSwimTyping();
+    console.error('[SwimCoach] callGemini failed:', e);
+    state.swimChatHistory.push({ role: 'model', parts: [{ text: '❌ ' + e.message }] });
+    renderSwimChat();
+  }
+  input.disabled = false;
+  input.focus();
+};
+
+// ── SWIM COACH MEMORY ───────────────────────────────────────
+
+async function updateSwimCoachMemory() {
+  console.log('[SwimCoach] updateSwimCoachMemory running, history length:', state.swimChatHistory.length);
+  if (!state.apiKey || state.swimChatHistory.length < 2) return;
+  const recentMessages = state.swimChatHistory.slice(-12)
+    .map(m => (m.role === 'user' ? 'Matt: ' : 'SwimCoach: ') + (m.parts?.[0]?.text || ''))
+    .join('\n');
+  const memPrompt = `Based on this swim coaching conversation, extract any swimming-related rules, preferences, technique cues, goals, injuries, or coaching decisions that should be remembered long term. Return ONLY a JSON array of strings, each a single clear memory under 20 words. Example: ["Targets sub-1:50/100m pace by end of summer", "Tends to drop elbow on breathing stroke"]. If nothing new to remember return [].
+
+CONVERSATION:
+${recentMessages}`;
+  try {
+    const raw = await callGemini([{role:'user',parts:[{text:memPrompt}]}], 'You extract and summarize swim coaching memories. Return only valid JSON arrays.');
+    console.log('[SwimCoach] memory raw response:', raw.slice(0, 200));
+    const newMemories = JSON.parse(raw.replace(/```json\n?|\n?```/g, '').trim());
+    if (!Array.isArray(newMemories) || newMemories.length === 0) {
+      console.log('[SwimCoach] memory: no new memories extracted');
+      return;
+    }
+    const merged = [...state.swimCoachMemory];
+    for (const mem of newMemories) {
+      const key = mem.toLowerCase().slice(0, 30);
+      if (!merged.some(m => m.toLowerCase().slice(0, 30) === key)) merged.push(mem);
+    }
+    state.swimCoachMemory = merged.slice(-30);
+    if (state.uid) {
+      await fbSet(`users/${state.uid}/profile/main`, { ...state.profile, swimCoachMemory: state.swimCoachMemory, apiKey: state.apiKey });
+    }
+    console.log('[SwimCoach] memory saved, total:', state.swimCoachMemory.length);
+    showToast('🏊 Swim memory updated');
+  } catch(e) {
+    console.error('[SwimCoach] memory update failed:', e);
+  }
+}
+
+// ── SWIM MEMORY SEEDING ─────────────────────────────────────
+
+let swimMemorySeeded = false;
+
+async function seedSwimMemory() {
+  if (swimMemorySeeded) return;
+  if (state.swimCoachMemory.length > 0) { swimMemorySeeded = true; return; }
+  if (!state.apiKey) return;
+  // Only seed if there's existing coach data to mine
+  if ((!state.coachMemory || state.coachMemory.length === 0) && state.chatHistory.length === 0) {
+    swimMemorySeeded = true;
+    state.swimCoachMemory = [];
+    if (state.uid) await fbSet(`users/${state.uid}/profile/main`, { ...state.profile, swimCoachMemory: [], apiKey: state.apiKey });
+    console.log('[SwimCoach] seeding: no existing coach data to mine, saving empty array');
+    return;
+  }
+
+  console.log('[SwimCoach] seeding swim memory from existing coach data...');
+  const coachMem = (state.coachMemory || []).map(m => '- ' + m).join('\n');
+  const chatSnippet = state.chatHistory.slice(-30)
+    .map(m => (m.role === 'user' ? 'Matt: ' : 'Coach: ') + (m.parts?.[0]?.text || ''))
+    .join('\n');
+
+  const seedPrompt = `From the following coaching memory and conversation history, extract ONLY swim-related facts: swimming goals, technique issues discussed, swim injuries, stroke preferences, schedule, pace targets, pool preferences. Ignore all gym/nutrition/weight content. Return ONLY a JSON array of strings (under 20 words each). If nothing swim-related found, return [].
+
+EXISTING COACH MEMORY:
+${coachMem || '(none)'}
+
+RECENT CONVERSATION:
+${chatSnippet || '(none)'}`;
+
+  try {
+    const raw = await callGemini([{role:'user',parts:[{text:seedPrompt}]}], 'You extract swim-related facts from fitness coaching history. Return only valid JSON arrays.');
+    console.log('[SwimCoach] seed raw response:', raw.slice(0, 200));
+    const memories = JSON.parse(raw.replace(/```json\n?|\n?```/g, '').trim());
+    swimMemorySeeded = true;
+    if (Array.isArray(memories) && memories.length > 0) {
+      state.swimCoachMemory = memories.slice(0, 30);
+      showToast(`🏊 Swim coach memory seeded (${memories.length} facts)`);
+    } else {
+      state.swimCoachMemory = [];
+      console.log('[SwimCoach] seeding: no swim-related facts found');
+    }
+    if (state.uid) {
+      await fbSet(`users/${state.uid}/profile/main`, { ...state.profile, swimCoachMemory: state.swimCoachMemory, apiKey: state.apiKey });
+    }
+  } catch(e) {
+    console.error('[SwimCoach] seed failed:', e);
+    swimMemorySeeded = true; // don't retry on failure
+  }
+}
+
+// ── POST-IMPORT DEBRIEF ─────────────────────────────────────
+
+async function swimCoachDebrief(docDate) {
+  console.log('[SwimCoach] auto-debrief for', docDate);
+  if (!state.apiKey) return;
+
+  const userMsg = { role: 'user', parts: [{ text: `Debrief this swim (${docDate}). What went well, what to improve?` }] };
+  state.swimChatHistory.push(userMsg);
+  renderSwimChat();
+  showSwimTyping();
+
+  try {
+    const reply = await callGemini(state.swimChatHistory, buildSwimSystemPrompt());
+    state.swimChatHistory.push({ role: 'model', parts: [{ text: reply }] });
+    hideSwimTyping();
+    renderSwimChat();
+    state.swimCoachReplyCount++;
+    console.log('[SwimCoach] debrief complete, replyCount:', state.swimCoachReplyCount);
+    if (state.swimCoachReplyCount % 2 === 0) updateSwimCoachMemory();
+  } catch(e) {
+    hideSwimTyping();
+    console.error('[SwimCoach] debrief failed:', e);
+    state.swimChatHistory.push({ role: 'model', parts: [{ text: '❌ Debrief failed: ' + e.message }] });
+    renderSwimChat();
+  }
+}
 
 window.updateSwimTotal = (ei) => {
   const list = document.getElementById('exerciseList');
@@ -5229,6 +5528,8 @@ window.switchTab = (name) => {
   }
   if(name==='swim') {
     renderSwimPanel();
+    renderSwimChat();
+    seedSwimMemory();
   }
 };
 
