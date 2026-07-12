@@ -1679,7 +1679,21 @@ async function loadUserData() {
 
   const profile = await fbGet(`${base}/profile/main`);
   if (profile) {
+    // Coerce numeric fields — protect against empty strings or wrong types from bad writes
+    for (const k of ['age', 'height', 'weight', 'goalWeight', 'calorieTarget', 'proteinTarget']) {
+      if (profile[k] !== undefined && profile[k] !== null) {
+        const raw = profile[k];
+        const n = parseFloat(raw);
+        if (raw === '' || (typeof raw === 'string' && isNaN(n))) {
+          console.warn(`[FitCoach] loadUserData: profile.${k} is invalid:`, JSON.stringify(raw), '— coercing to null');
+          profile[k] = null;
+        } else if (typeof raw === 'string' && !isNaN(n)) {
+          profile[k] = n; // coerce numeric string to number
+        }
+      }
+    }
     state.profile = profile;
+    state._profileDocExists = true;
     if (profile.customSchedule) state.customSchedule = profile.customSchedule;
     if (profile.coachMemory) state.coachMemory = profile.coachMemory;
     if (profile.swimCoachMemory) state.swimCoachMemory = profile.swimCoachMemory;
@@ -1688,6 +1702,8 @@ async function loadUserData() {
       state.apiKey = profile.apiKey;
       saveLocal();
     }
+  } else {
+    state._profileDocExists = false;
   }
 
   const weightSnap = await getDocs(query(collection(db, `${base}/weights`), orderBy('date')));
@@ -1726,22 +1742,40 @@ async function loadUserData() {
 }
 
 async function saveProfile() {
+  const ageVal = document.getElementById('sAge').value.trim();
+  const heightVal = document.getElementById('sHeight').value.trim();
+  const weightVal = document.getElementById('sWeight').value.trim();
+  const goalVal = document.getElementById('sGoal').value.trim();
+  const calVal = document.getElementById('sCalories').value.trim();
+  const protVal = document.getElementById('sProtein').value.trim();
+
+  // Validate required numeric fields
+  // TODO: showToast doesn't render visibly on the setup screen — user sees unresponsive button. Add inline error or red border feedback in a future session.
+  const age = parseFloat(ageVal);
+  const height = parseFloat(heightVal);
+  const weight = parseFloat(weightVal);
+  const goalWeight = parseFloat(goalVal);
+  if (!ageVal || !heightVal || !weightVal || !goalVal || isNaN(age) || isNaN(height) || isNaN(weight) || isNaN(goalWeight)) {
+    showToast('Please fill in age, height, weight, and goal weight with valid numbers');
+    return;
+  }
+
   const profile = {
-    age: document.getElementById('sAge').value,
-    height: document.getElementById('sHeight').value,
-    weight: document.getElementById('sWeight').value,
-    goalWeight: document.getElementById('sGoal').value,
-    calorieTarget: document.getElementById('sCalories').value || 2200,
-    proteinTarget: document.getElementById('sProtein').value || 150,
+    age,
+    height,
+    weight,
+    goalWeight,
+    calorieTarget: parseFloat(calVal) || 2200,
+    proteinTarget: parseFloat(protVal) || 150,
     context: document.getElementById('sContext').value,
   };
   state.profile = profile;
 
   if (state.uid) {
     await fbSet(`users/${state.uid}/profile/main`, profile);
-    if (profile.weight) {
-      await fbSet(`users/${state.uid}/weights/${todayStr()}`, { date: todayStr(), weight: parseFloat(profile.weight) });
-      state.weightLog.push({ date: todayStr(), weight: parseFloat(profile.weight) });
+    if (weight) {
+      await fbSet(`users/${state.uid}/weights/${todayStr()}`, { date: todayStr(), weight });
+      state.weightLog.push({ date: todayStr(), weight });
     }
   }
 
@@ -1785,7 +1819,8 @@ async function handleUserSignIn(user) {
   loading.classList.add('hidden');
   setTimeout(() => loading.style.display = 'none', 300);
 
-  if (!state.profile.age) {
+  // Only show onboarding for genuinely new users (no profile doc in Firestore)
+  if (!state._profileDocExists) {
     document.getElementById('setupScreen').style.display = 'block';
   } else {
     launchApp();
@@ -1830,7 +1865,8 @@ onAuthStateChanged(auth, async (user) => {
     setTimeout(() => loading.style.display = 'none', 300);
 
     if (state.apiKey) {
-      if (!state.profile.age) {
+      // Anonymous/local path: check if profile has any data loaded (from localStorage)
+      if (Object.keys(state.profile).length === 0) {
         document.getElementById('setupScreen').style.display = 'block';
       } else {
         launchApp();
@@ -2651,7 +2687,7 @@ window.generateWorkout = async () => {
 
 TODAY IS A ${s.label.toUpperCase()} DAY. You are generating a ${s.label} workout.
 
-CONTEXT: calories today: ${totalCals}kcal (target: ${state.profile.calorieTarget}), protein: ${Math.round(totalProtein)}g, weight: ${latestWeight ? latestWeight.weight+'lbs' : 'unknown'}.
+CONTEXT: calories today: ${totalCals}kcal (target: ${state.profile.calorieTarget || 2200}), protein: ${Math.round(totalProtein)}g, weight: ${latestWeight ? latestWeight.weight+'lbs' : 'unknown'}.
 ${recentCoachContext ? `\nRECENT COACH CONVERSATION (apply any exercise changes discussed):\n${recentCoachContext}\n` : ''}
 APPROVED EXERCISES FOR A ${s.label.toUpperCase()} DAY (pick 5-7 from this list only):
 ${dayExercises.join(', ')}
@@ -4754,7 +4790,7 @@ window.sendContextUpdate = () => {
   const log = state.weightLog.slice(-1)[0];
   const food = state.foodLog[today] || [];
   const totalCals = food.reduce((a,b)=>a+(b.calories||0),0);
-  const text = `Here's my update for ${today}: weight ${log ? log.weight+'lbs' : 'not logged'}, calories eaten: ${totalCals} (target: ${state.profile.calorieTarget}), foods: ${food.map(f=>f.name).join(', ')||'nothing yet'}. What do you think?`;
+  const text = `Here's my update for ${today}: weight ${log ? log.weight+'lbs' : 'not logged'}, calories eaten: ${totalCals} (target: ${state.profile.calorieTarget || 2200}), foods: ${food.map(f=>f.name).join(', ')||'nothing yet'}. What do you think?`;
   document.getElementById('todayChatInput').value = text;
   sendTodayChat();
 };
@@ -4809,15 +4845,15 @@ function buildSystemPrompt() {
 
 IMPORTANT: When the user asks to change exercises, swap movements, adjust their schedule, or modify their workout in any way — acknowledge the change AND know that the app will automatically update the workout list based on your conversation. So make your recommendation clearly.
 
-PROFILE: Age ${p.age}, Height ${p.height}in, Goal: ${p.goalWeight}lbs, Calories: ${p.calorieTarget}kcal/day, Protein: ${p.proteinTarget}g/day
+PROFILE: Age ${p.age || 'unknown'}, Height ${p.height || 'unknown'}in, Goal: ${p.goalWeight || 'unknown'}lbs, Calories: ${p.calorieTarget || 2200}kcal/day, Protein: ${p.proteinTarget || 150}g/day
 
 BACKGROUND: ${p.context || 'No prior history provided.'}
 
 RECENT WEIGHT (14 days): ${log.map(e=>`${e.date}: ${e.weight}lbs`).join(', ')||'No data'}
 
 TODAY (${today}, ${sched[dow]?.label} day):
-- Calories: ${totalCals}/${p.calorieTarget}kcal
-- Protein: ${Math.round(totalProtein)}g/${p.proteinTarget}g
+- Calories: ${totalCals}/${p.calorieTarget || 2200}kcal
+- Protein: ${Math.round(totalProtein)}g/${p.proteinTarget || 150}g
 - Foods eaten: ${food.map(f=>f.name).join(', ')||'nothing yet'}
 - Current workout exercises: ${currentExercises}
 
@@ -5395,20 +5431,37 @@ window.saveEditFood = async () => {
 window.saveSettings = async () => {
   const key = document.getElementById('settingsKey').value.trim();
   if (key) state.apiKey = key;
+
+  const ageVal = document.getElementById('settingsAge').value.trim();
+  const heightVal = document.getElementById('settingsHeight').value.trim();
+  const goalVal = document.getElementById('settingsGoal').value.trim();
+  const calVal = document.getElementById('settingsCalories').value.trim();
+  const protVal = document.getElementById('settingsProtein').value.trim();
+
+  // Required fields: must be non-empty and numeric
+  // TODO: showToast doesn't render visibly inside the Settings modal — user sees unresponsive Save button. Add inline error or red border feedback in a future session.
+  const age = parseFloat(ageVal);
+  const height = parseFloat(heightVal);
+  const goalWeight = parseFloat(goalVal);
+  if (!ageVal || !heightVal || !goalVal || isNaN(age) || isNaN(height) || isNaN(goalWeight)) {
+    showToast('Age, height, and goal weight are required and must be numbers');
+    return;
+  }
+
   state.profile = {
     ...state.profile,
-    age: document.getElementById('settingsAge').value,
-    height: document.getElementById('settingsHeight').value,
-    goalWeight: document.getElementById('settingsGoal').value,
-    calorieTarget: document.getElementById('settingsCalories').value,
-    proteinTarget: document.getElementById('settingsProtein').value,
+    age,
+    height,
+    goalWeight,
+    calorieTarget: calVal ? parseFloat(calVal) : (state.profile.calorieTarget || 2200),
+    proteinTarget: protVal ? parseFloat(protVal) : (state.profile.proteinTarget || 150),
     context: document.getElementById('settingsContext').value,
     apiKey: state.apiKey,
   };
   if (state.uid) await fbSet(`users/${state.uid}/profile/main`, state.profile);
   saveLocal();
   closeModal('settingsModal');
-  showToast('✅ Settings saved');
+  showToast('Settings saved');
 };
 
 window.openModal = (id) => {
