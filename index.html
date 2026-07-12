@@ -4,7 +4,10 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>FitCoach</title>
-<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%230e0e0e'/%3E%3Ctext x='2' y='24' font-family='Arial Black,sans-serif' font-size='22' font-weight='900' fill='%23ff5c1a'%3EF%3C/text%3E%3Ctext x='14' y='24' font-family='Arial Black,sans-serif' font-size='22' font-weight='900' fill='%23f5f5f5'%3EC%3C/text%3E%3C/svg%3E">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800;900&family=Barlow:wght@300;400;500;600&family=Barlow+Semi+Condensed:wght@500;600&display=swap" rel="stylesheet">
 <style>
 :root {
@@ -1306,6 +1309,80 @@ input[type="file"] { display: none; }
 
     </div>
 
+    <!-- SWIM PANEL -->
+    <div class="panel" id="panel-swim">
+
+      <div class="section-sep">Swim Sessions</div>
+
+      <div style="display:flex;gap:8px;margin-bottom:16px;align-items:center">
+        <label for="swimCsvInput" style="flex:1;text-align:center;cursor:pointer;padding:10px 0;background:#ff5c1a;color:#000;font-weight:700;font-size:14px;border-radius:10px;font-family:'Barlow Condensed',sans-serif;letter-spacing:0.5px">
+          ⬆ Import FORM CSV
+        </label>
+        <input type="file" id="swimCsvInput" accept=".csv" style="display:none" onchange="importSwimCsv(this)">
+      </div>
+
+      <div id="swimEmptyMsg" style="color:var(--muted);font-size:13px;padding:32px 0;text-align:center">
+        No swim sessions yet.<br>Import a FORM CSV export from the Form app to get started.
+      </div>
+
+      <!-- Session summary card -->
+      <div id="swimSummaryCard" class="card" style="display:none">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px">
+          <div id="swimSummaryDate" style="font-size:16px;font-weight:700;color:var(--text)"></div>
+          <div id="swimSummaryPool" style="font-size:11px;color:var(--muted)"></div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px">
+          <div style="text-align:center">
+            <div id="swimStatDist" style="font-size:22px;font-weight:700;color:#5ab4ff"></div>
+            <div style="font-size:10px;color:var(--muted);letter-spacing:0.5px">DISTANCE</div>
+          </div>
+          <div style="text-align:center">
+            <div id="swimStatPace" style="font-size:22px;font-weight:700;color:#ff5c1a"></div>
+            <div style="font-size:10px;color:var(--muted);letter-spacing:0.5px">AVG /100m</div>
+          </div>
+          <div style="text-align:center">
+            <div id="swimStatTime" style="font-size:22px;font-weight:700;color:var(--text)"></div>
+            <div style="font-size:10px;color:var(--muted);letter-spacing:0.5px">MOVE TIME</div>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:6px;margin-bottom:14px">
+          <div style="text-align:center;background:#111;border-radius:8px;padding:6px 4px">
+            <div id="swimStatSWOLF" style="font-size:15px;font-weight:700;color:#3dffc0"></div>
+            <div style="font-size:9px;color:var(--muted)">SWOLF</div>
+          </div>
+          <div style="text-align:center;background:#111;border-radius:8px;padding:6px 4px">
+            <div id="swimStatDPS" style="font-size:15px;font-weight:700;color:#3dffc0"></div>
+            <div style="font-size:9px;color:var(--muted)">DPS (m)</div>
+          </div>
+          <div style="text-align:center;background:#111;border-radius:8px;padding:6px 4px">
+            <div id="swimStatHR" style="font-size:15px;font-weight:700;color:#e05050"></div>
+            <div style="font-size:9px;color:var(--muted)">AVG HR</div>
+          </div>
+          <div style="text-align:center;background:#111;border-radius:8px;padding:6px 4px">
+            <div id="swimStatDrift" style="font-size:15px;font-weight:700;color:#e05050"></div>
+            <div style="font-size:9px;color:var(--muted)">HR DRIFT</div>
+          </div>
+        </div>
+        <!-- Per-set breakdown -->
+        <div style="font-size:11px;color:var(--muted);letter-spacing:0.5px;margin-bottom:6px">SET BREAKDOWN</div>
+        <div id="swimSetBreakdown" style="display:flex;flex-direction:column;gap:4px"></div>
+      </div>
+
+      <!-- History chart + session list -->
+      <div id="swimHistoryCard" class="card" style="display:none;margin-top:12px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <div style="font-size:12px;font-weight:700;color:var(--muted);letter-spacing:0.5px">HISTORY</div>
+          <div style="display:flex;gap:6px">
+            <button id="swimChartMetric_dist" onclick="setSwimChartMetric('dist')" style="font-size:10px;padding:2px 8px;border:1px solid #444;border-radius:5px;background:transparent;color:#eee;cursor:pointer;font-family:'Barlow Condensed',sans-serif">Distance</button>
+            <button id="swimChartMetric_pace" onclick="setSwimChartMetric('pace')" style="font-size:10px;padding:2px 8px;border:1px solid #444;border-radius:5px;background:transparent;color:#eee;cursor:pointer;font-family:'Barlow Condensed',sans-serif;opacity:0.5">Pace</button>
+          </div>
+        </div>
+        <div id="swimHistoryChart" style="margin-bottom:12px"></div>
+        <div id="swimHistoryList" style="display:flex;flex-direction:column;gap:4px"></div>
+      </div>
+
+    </div>
+
   </div><!-- end scroll area -->
 
   <!-- BOTTOM NAV -->
@@ -1318,13 +1395,17 @@ input[type="file"] { display: none; }
       <span class="nav-icon">✏️</span>
       <span class="nav-label">Log</span>
     </button>
+    <button class="nav-item" id="nav-swim" onclick="switchTab('swim')">
+      <span class="nav-icon">🏊</span>
+      <span class="nav-label">Swim</span>
+    </button>
     <button class="nav-item" id="nav-progress" onclick="switchTab('progress')">
       <span class="nav-icon">📈</span>
       <span class="nav-label">Progress</span>
     </button>
     <button class="nav-item" id="nav-analysis" onclick="switchTab('analysis')">
       <span class="nav-icon">📊</span>
-      <span class="nav-label">Analysis</span>
+      <span class="nav-label">Coach</span>
     </button>
   </div>
 
@@ -1334,7 +1415,7 @@ input[type="file"] { display: none; }
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getAuth, GoogleAuthProvider, signInWithPopup, signInAnonymously, signOut as fbSignOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-import { getFirestore, doc, getDoc, setDoc, updateDoc, collection, addDoc, query, orderBy, getDocs, deleteDoc } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { getFirestore, doc, getDoc, setDoc, updateDoc, collection, addDoc, query, orderBy, getDocs, deleteDoc, limit } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { Chart, registerables } from "https://cdn.jsdelivr.net/npm/chart.js@4.4.1/+esm";
 Chart.register(...registerables);
 
@@ -1443,6 +1524,7 @@ let state = {
   exerciseHistory: {},
   editWorkout: null,
   editDate: null,
+  swims: {},
 };
 
 let weightChartInst = null, weightChartBigInst = null;
@@ -1600,6 +1682,12 @@ async function loadUserData() {
   state.exerciseHistory = {};
   exSnap.forEach(d => { state.exerciseHistory[d.id] = d.data(); });
   console.log('[FitCoach] loadUserData: loaded exerciseHistory for', exSnap.size, 'exercises');
+
+  // Load last 20 swim sessions
+  const swimSnap = await getDocs(query(collection(db, `${base}/swims`), orderBy('importedAt', 'desc'), limit(20)));
+  state.swims = {};
+  swimSnap.forEach(d => { state.swims[d.id] = d.data(); });
+  console.log('[FitCoach] loadUserData: loaded', swimSnap.size, 'swim sessions');
 
   // Restore today's workout (including entered set data) if previously saved
   const todayWorkout = await fbGet(`${base}/workouts/${todayStr()}`);
@@ -1823,11 +1911,33 @@ function renderTodayWorkout() {
   document.getElementById('todayType').className = `workout-type ${s.type}`;
   const metaEl = document.getElementById('todayMeta');
   if (s.type === 'rest') metaEl.textContent = 'Rest & recovery day';
-  else if (s.type === 'swim') metaEl.innerHTML = '<span>Cardio + Full body</span> · 30–45 min';
+  else if (s.type === 'swim') metaEl.innerHTML = '<span>Swim Day</span> · Pool';
   else if (s.type === 'legs') metaEl.innerHTML = '<span>Legs Day</span> · Gym';
   else metaEl.innerHTML = `<span>${s.label} Day</span> · Gym`;
   const btn = document.getElementById('genWorkoutBtn');
-  if (btn) btn.textContent = s.type === 'rest' ? 'Rest Day' : s.type === 'swim' ? 'Swim Day' : `Generate ${s.label}`;
+  if (btn) btn.textContent = s.type === 'rest' ? 'Rest Day' : s.type === 'swim' ? 'Log Swim ↗' : `Generate ${s.label}`;
+  if (btn) btn.onclick = s.type === 'swim' ? () => switchTab('swim') : generateWorkout;
+
+  // Swim day: show redirect card in exercise list instead of generating exercises
+  const exList = document.getElementById('exerciseList');
+  if (s.type === 'swim' && exList && !state.currentWorkout) {
+    const todaySwim = state.swims[todayStr()];
+    if (todaySwim) {
+      const sm = todaySwim.summary;
+      exList.innerHTML = `<div style="background:#111;border-radius:10px;padding:14px;text-align:center">
+        <div style="font-size:12px;color:var(--muted);margin-bottom:6px">TODAY'S SWIM</div>
+        <div style="font-size:24px;font-weight:700;color:#5ab4ff">${sm.totalDist}m</div>
+        <div style="font-size:13px;color:var(--muted);margin:4px 0">${fmtDur(sm.moveTime)} · ${fmtDur(sm.avgPace100)}/100m</div>
+        <button onclick="switchTab('swim')" style="margin-top:10px;background:#5ab4ff22;color:#5ab4ff;border:1px solid #5ab4ff55;border-radius:8px;padding:6px 20px;font-family:'Barlow Condensed',sans-serif;font-size:13px;cursor:pointer;font-weight:700">View Full Session →</button>
+      </div>`;
+    } else {
+      exList.innerHTML = `<div style="background:#111;border-radius:10px;padding:14px;text-align:center">
+        <div style="font-size:13px;color:var(--muted);margin-bottom:8px">Swim day — log your session after your swim.</div>
+        <button onclick="switchTab('swim')" style="background:#5ab4ff22;color:#5ab4ff;border:1px solid #5ab4ff55;border-radius:8px;padding:6px 20px;font-family:'Barlow Condensed',sans-serif;font-size:13px;cursor:pointer;font-weight:700">Go to Swim Tab →</button>
+      </div>`;
+    }
+  }
+
   renderDayOverrideBtns(s.type);
 }
 
@@ -1883,6 +1993,291 @@ window.loadQuickTemplate = async (type) => {
   showWorkoutStartTime();
   if (state.uid) await fbSet(`users/${state.uid}/workouts/${today}`, buildWatchWorkoutDoc(exercises, type, today));
   showToast(`✅ Quick ${type.toUpperCase()} workout loaded`);
+};
+
+// ── FORM SWIM GOGGLES ─────────────────────────────────────────
+
+function swimParseDur(str) {
+  if (!str || str === '0:00.00' || str === '0:00') return 0;
+  const parts = str.split(':');
+  if (parts.length === 3) return parseFloat(parts[0]) * 3600 + parseFloat(parts[1]) * 60 + parseFloat(parts[2]);
+  if (parts.length === 2) return parseFloat(parts[0]) * 60 + parseFloat(parts[1]);
+  return 0;
+}
+
+function fmtDur(sec) {
+  if (!sec || sec <= 0) return '0:00';
+  const m = Math.floor(sec / 60);
+  const s = Math.round(sec % 60);
+  return `${m}:${s.toString().padStart(2, '0')}`;
+}
+
+function swimMean(arr) {
+  const v = arr.filter(x => x > 0);
+  return v.length > 0 ? v.reduce((a, b) => a + b, 0) / v.length : 0;
+}
+
+function parseFormCsv(text) {
+  const lines = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
+  if (!lines[0].startsWith('Swim Date,Swim Title')) {
+    throw new Error('Not a FORM CSV: first row must start with "Swim Date,Swim Title"');
+  }
+  const meta1 = lines[1].split(',');
+  const dp = meta1[0].split('/');
+  const docDate = `${dp[2]}-${dp[0].padStart(2,'0')}-${dp[1].padStart(2,'0')}`;
+  const startTime = meta1[2];
+  const endTime   = meta1[3];
+  const poolSize  = parseInt(meta1[5]) || 25;
+  const hrDevice  = meta1[6] || '';
+
+  let detailHeaderIdx = -1;
+  for (let i = 2; i < lines.length; i++) {
+    if (lines[i].startsWith('Swim Date,Swim Time')) { detailHeaderIdx = i; break; }
+  }
+  if (detailHeaderIdx === -1) throw new Error('Not a FORM CSV: could not find per-length detail header');
+
+  const rows = [];
+  for (let i = detailHeaderIdx + 1; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line) continue;
+    const c = line.split(',');
+    if (c.length < 20) continue;
+    rows.push({
+      isRest:        c[6] === 'REST',
+      setNum:        parseInt(c[2]),
+      setStructure:  c[3],
+      dist:          parseFloat(c[11]) || 0,
+      moveSec:       swimParseDur(c[7]),
+      restSec:       swimParseDur(c[8]),
+      dps:           parseFloat(c[13]) || 0,
+      avgBpm:        parseFloat(c[14]) || 0,
+      maxBpm:        parseFloat(c[15]) || 0,
+      pace100Str:    c[17],
+      swolf:         parseFloat(c[19]) || 0,
+      strkRate:      parseFloat(c[20]) || 0,
+      strokes:       parseFloat(c[21]) || 0,
+      strokesPerLen: parseFloat(c[22]) || 0,
+      calories:      parseFloat(c[23]) || 0,
+    });
+  }
+
+  const swimRows = rows.filter(r => !r.isRest);
+  const totalDist  = swimRows.reduce((s, r) => s + r.dist, 0);
+  const lengths    = swimRows.length;
+  const sets       = rows.length > 0 ? Math.max(...rows.map(r => r.setNum)) : 0;
+  const moveTime   = swimRows.reduce((s, r) => s + r.moveSec, 0);
+  const restTime   = rows.reduce((s, r) => s + r.restSec, 0);
+  const totalTime  = moveTime + restTime;
+  const avgPace100 = totalDist > 0 ? (moveTime / totalDist) * 100 : 0;
+  const pace100Secs = swimRows.map(r => swimParseDur(r.pace100Str)).filter(v => v > 0);
+  const bestPace100 = pace100Secs.length > 0 ? Math.min(...pace100Secs) : 0;
+  const avgDPS          = swimMean(swimRows.map(r => r.dps));
+  const avgSWOLF        = swimMean(swimRows.map(r => r.swolf));
+  const avgStrokeRate   = swimMean(swimRows.map(r => r.strkRate));
+  const avgStrokesPerLen = swimMean(swimRows.map(r => r.strokesPerLen));
+  const avgHR           = swimMean(swimRows.map(r => r.avgBpm));
+  const maxBpms         = rows.map(r => r.maxBpm).filter(v => v > 0);
+  const maxHR           = maxBpms.length > 0 ? Math.max(...maxBpms) : 0;
+  const calories        = rows.reduce((s, r) => s + r.calories, 0);
+
+  let hrDrift = null;
+  const hrSwimRows = swimRows.filter(r => r.avgBpm > 0);
+  if (hrSwimRows.length >= 3) {
+    const third    = Math.floor(hrSwimRows.length / 3);
+    const firstAvg = swimMean(hrSwimRows.slice(0, third).map(r => r.avgBpm));
+    const lastAvg  = swimMean(hrSwimRows.slice(-third).map(r => r.avgBpm));
+    hrDrift = Math.round(lastAvg - firstAvg);
+  }
+
+  const summary = { totalDist, lengths, sets, moveTime, restTime, totalTime,
+    avgPace100, bestPace100, avgDPS, avgSWOLF, avgStrokeRate, avgStrokesPerLen,
+    avgHR, maxHR, hrDrift, calories };
+
+  const setNums = [...new Set(rows.map(r => r.setNum))].sort((a, b) => a - b);
+  const setsBreakdown = setNums.map(sn => {
+    const setRows     = rows.filter(r => r.setNum === sn);
+    const setSwimRows = setRows.filter(r => !r.isRest);
+    const setRestRows = setRows.filter(r => r.isRest);
+    const structure   = (setSwimRows[0] || setRows[0])?.setStructure || '';
+    const dist        = setSwimRows.reduce((s, r) => s + r.dist, 0);
+    const mt          = setSwimRows.reduce((s, r) => s + r.moveSec, 0);
+    return {
+      setNum:    sn, structure, dist,
+      moveTime:  mt,
+      avgPace100: dist > 0 ? (mt / dist) * 100 : 0,
+      avgSWOLF:  swimMean(setSwimRows.map(r => r.swolf)),
+      avgHR:     swimMean(setSwimRows.map(r => r.avgBpm)),
+      restAfter: setRestRows.reduce((s, r) => s + r.restSec, 0),
+    };
+  });
+
+  const lengthsArr = swimRows.map(r => ({
+    set: r.setNum, dist: r.dist, moveSec: r.moveSec, dps: r.dps,
+    swolf: r.swolf, strkRate: r.strkRate, strokes: r.strokes,
+    hr: r.avgBpm, pace100Sec: swimParseDur(r.pace100Str),
+  }));
+
+  return { docDate, meta: { startTime, endTime, poolSize, hrDevice, poolUnit: 'm' }, summary, sets: setsBreakdown, lengths: lengthsArr };
+}
+
+window.importSwimCsv = async (input) => {
+  const file = input.files[0];
+  if (!file) return;
+  input.value = '';
+  const text = await file.text();
+  let swim;
+  try { swim = parseFormCsv(text); }
+  catch(e) { showToast(`Import failed: ${e.message}`); return; }
+
+  if (!state.uid) { showToast('Sign in to save swim sessions'); return; }
+
+  if (state.swims[swim.docDate]) {
+    if (!confirm(`A swim session for ${swim.docDate} already exists. Overwrite?`)) return;
+  }
+
+  const doc = { ...swim, importedAt: Date.now() };
+  await fbSet(`users/${state.uid}/swims/${swim.docDate}`, doc);
+  state.swims[swim.docDate] = doc;
+
+  showToast(`Swim imported: ${swim.summary.totalDist}m on ${swim.docDate}`);
+  renderSwimPanel(swim.docDate);
+  renderTodayWorkout(); // refresh Today tab redirect card if it was a swim day
+};
+
+let swimChartMetric = 'dist';
+let swimSelectedDate = null;
+
+window.setSwimChartMetric = (metric) => {
+  swimChartMetric = metric;
+  document.getElementById('swimChartMetric_dist').style.opacity = metric === 'dist' ? '1' : '0.5';
+  document.getElementById('swimChartMetric_pace').style.opacity = metric === 'pace' ? '1' : '0.5';
+  renderSwimHistoryChart();
+};
+
+function renderSwimPanel(selectDate) {
+  const dates = Object.keys(state.swims).sort();
+  const emptyEl = document.getElementById('swimEmptyMsg');
+  const summaryEl = document.getElementById('swimSummaryCard');
+  const historyEl = document.getElementById('swimHistoryCard');
+
+  if (dates.length === 0) {
+    emptyEl.style.display = '';
+    summaryEl.style.display = 'none';
+    historyEl.style.display = 'none';
+    return;
+  }
+
+  emptyEl.style.display = 'none';
+  summaryEl.style.display = '';
+  historyEl.style.display = '';
+
+  swimSelectedDate = selectDate || dates[dates.length - 1];
+  renderSwimSummary(swimSelectedDate);
+  renderSwimHistoryChart();
+  renderSwimSessionList();
+}
+
+function renderSwimSummary(date) {
+  const swim = state.swims[date];
+  if (!swim) return;
+  const s = swim.summary;
+  document.getElementById('swimSummaryDate').textContent = date;
+  document.getElementById('swimSummaryPool').textContent = `${swim.meta.poolSize}m pool · ${swim.meta.startTime}–${swim.meta.endTime}`;
+  document.getElementById('swimStatDist').textContent = `${s.totalDist}m`;
+  document.getElementById('swimStatPace').textContent = fmtDur(s.avgPace100);
+  document.getElementById('swimStatTime').textContent = fmtDur(s.moveTime);
+  document.getElementById('swimStatSWOLF').textContent = s.avgSWOLF > 0 ? s.avgSWOLF.toFixed(1) : '—';
+  document.getElementById('swimStatDPS').textContent = s.avgDPS > 0 ? s.avgDPS.toFixed(2) : '—';
+  document.getElementById('swimStatHR').textContent = s.avgHR > 0 ? `${Math.round(s.avgHR)} bpm` : '—';
+  document.getElementById('swimStatDrift').textContent = s.hrDrift !== null ? `${s.hrDrift > 0 ? '+' : ''}${s.hrDrift}` : '—';
+
+  const breakdown = document.getElementById('swimSetBreakdown');
+  breakdown.innerHTML = (swim.sets || []).map(st => `
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:5px 8px;background:#111;border-radius:6px;font-size:12px">
+      <span style="color:var(--muted)">Set ${st.setNum}</span>
+      <span style="color:#5ab4ff;font-weight:700">${st.dist}m</span>
+      <span style="color:var(--muted)">${fmtDur(st.avgPace100)}/100m</span>
+      <span style="color:#3dffc0">SWOLF ${st.avgSWOLF > 0 ? st.avgSWOLF.toFixed(0) : '—'}</span>
+      ${st.restAfter > 0 ? `<span style="color:var(--muted)">rest ${Math.round(st.restAfter)}s</span>` : ''}
+    </div>`).join('');
+}
+
+function renderSwimHistoryChart() {
+  const el = document.getElementById('swimHistoryChart');
+  if (!el) return;
+  const dates = Object.keys(state.swims).sort();
+  if (dates.length < 2) { el.innerHTML = ''; return; }
+
+  const W = 300, H = 80, PAD = { t: 8, b: 20, l: 36, r: 8 };
+  const vals = dates.map(d => {
+    const s = state.swims[d].summary;
+    return swimChartMetric === 'pace' ? s.avgPace100 : s.totalDist;
+  });
+
+  const minV = Math.min(...vals), maxV = Math.max(...vals);
+  const range = maxV - minV || 1;
+  const xScale = i => PAD.l + (i / (dates.length - 1)) * (W - PAD.l - PAD.r);
+  const yScale = v => PAD.t + (1 - (v - minV) / range) * (H - PAD.t - PAD.b);
+  // For pace: lower = better, so invert
+  const yScalePace = v => PAD.t + ((v - minV) / range) * (H - PAD.t - PAD.b);
+  const yS = swimChartMetric === 'pace' ? yScalePace : yScale;
+
+  const pts = dates.map((_, i) => [xScale(i), yS(vals[i])]);
+  const polyline = pts.map(p => p.join(',')).join(' ');
+
+  // x-axis labels (show first, middle, last)
+  const labelIdxs = [0, Math.floor(dates.length / 2), dates.length - 1];
+  const labels = labelIdxs.map(i => {
+    const d = dates[i]; // YYYY-MM-DD
+    return `<text x="${xScale(i)}" y="${H}" fill="#555" font-size="9" text-anchor="middle" font-family="Barlow Condensed,sans-serif">${d.slice(5)}</text>`;
+  }).join('');
+
+  // y-axis labels
+  const yLabels = [minV, maxV].map((v, i) => {
+    const y = yS(v);
+    const label = swimChartMetric === 'pace' ? fmtDur(v) : `${v}m`;
+    return `<text x="${PAD.l - 4}" y="${y + 4}" fill="#555" font-size="9" text-anchor="end" font-family="Barlow Condensed,sans-serif">${label}</text>`;
+  }).join('');
+
+  // Dot for selected session
+  const selIdx = dates.indexOf(swimSelectedDate);
+  const selDot = selIdx >= 0
+    ? `<circle cx="${xScale(selIdx)}" cy="${yS(vals[selIdx])}" r="4" fill="#ff5c1a" stroke="#ff5c1a22" stroke-width="3"/>`
+    : '';
+
+  el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="100%" style="overflow:visible">
+    <polyline points="${polyline}" fill="none" stroke="#5ab4ff" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+    ${selDot}
+    ${labels}
+    ${yLabels}
+  </svg>`;
+}
+
+function renderSwimSessionList() {
+  const el = document.getElementById('swimHistoryList');
+  if (!el) return;
+  const dates = Object.keys(state.swims).sort().reverse();
+  el.innerHTML = dates.map(d => {
+    const s = state.swims[d].summary;
+    const isSelected = d === swimSelectedDate;
+    return `<div onclick="selectSwimSession('${d}')" style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;background:${isSelected ? '#1a2a3a' : '#111'};border-radius:8px;cursor:pointer;border:1px solid ${isSelected ? '#5ab4ff44' : 'transparent'}">
+      <div>
+        <div style="font-size:13px;font-weight:700;color:${isSelected ? '#5ab4ff' : 'var(--text)'}">${d}</div>
+        <div style="font-size:11px;color:var(--muted)">${fmtDur(s.moveTime)} · ${s.lengths} lengths</div>
+      </div>
+      <div style="text-align:right">
+        <div style="font-size:15px;font-weight:700;color:#5ab4ff">${s.totalDist}m</div>
+        <div style="font-size:11px;color:var(--muted)">${fmtDur(s.avgPace100)}/100m</div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+window.selectSwimSession = (date) => {
+  swimSelectedDate = date;
+  renderSwimSummary(date);
+  renderSwimHistoryChart();
+  renderSwimSessionList();
 };
 
 window.updateSwimTotal = (ei) => {
@@ -4831,6 +5226,9 @@ window.switchTab = (name) => {
   }
   if(name==='analysis') {
     initAnalysisDashboard();
+  }
+  if(name==='swim') {
+    renderSwimPanel();
   }
 };
 
