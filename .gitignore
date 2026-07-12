@@ -1,3 +1,6 @@
+# Test data (contains HR/biometric data - do not commit to public repo)
+test-data/
+
 # Logs
 logs
 *.log
