@@ -1454,42 +1454,49 @@ const auth = getAuth(fbApp);
 const db = getFirestore(fbApp);
 
 // ── APPROVED EXERCISE LIBRARY ────────────────────────────────
-const APPROVED_EXERCISES = [
-  // PUSH
-  {name:'Bench Press',                      type:'push'},
-  {name:'Dumbbell Bench Press',             type:'push'},
-  {name:'Incline Bench Press',              type:'push'},
-  {name:'Overhead Press',                   type:'push'},
-  {name:'Weighted Dips',                    type:'push'},
-  {name:'Lateral Raise',                    type:'push'},
-  {name:'Overhead Cable Triceps Extension', type:'push'},
-  {name:'Tricep Pushdowns',                 type:'push'},
-  {name:'Cable Crunch',                     type:'push'},
-  {name:'Nautilus Glute Drive',             type:'push'},
-  // PULL
-  {name:'Deadlift',                         type:'pull'},
-  {name:'Pull Up',                          type:'pull'},
-  {name:'Lat Pulldowns',                    type:'pull'},
-  {name:'Seated Cable Row',                 type:'pull'},
-  {name:'Bayesian Cable Curl',              type:'pull'},
-  {name:'Preacher Curl',                    type:'pull'},
-  {name:'Dumbbell Shrugs',                  type:'pull'},
-  {name:'Seated Leg Curl',                  type:'pull'},
-  {name:'DB Wrist Curls/Extensions',        type:'pull'},
-  {name:'Neck Curls/Extensions',            type:'pull'},
-  {name:'Face Pulls',                       type:'pull'},
-  // LEGS
-  {name:'Goblet Squat',                     type:'legs'},
-  {name:'Squat',                            type:'legs'},
-  {name:'Walking Lunge',                    type:'legs'},
-  {name:'Romanian Deadlift',                type:'legs'},
-  {name:'Leg Extension',                    type:'legs'},
-  {name:'Standing Calf Raise',              type:'legs'},
-  {name:'Hanging Leg Raises',               type:'legs'},
-  {name:'Plank',                            type:'legs'},
-  // SWIM
-  {name:'Swimming',                         type:'swim', isSwim:true, sets:3},
+const EXERCISE_LIBRARY = [
+  // PUSH (10)
+  { name: "Bench Press",                      category: "push", muscle: "chest" },
+  { name: "Dumbbell Bench Press",             category: "push", muscle: "chest" },
+  { name: "Incline Bench Press",              category: "push", muscle: "chest" },
+  { name: "Weighted Dips",                    category: "push", muscle: "chest" },
+  { name: "Overhead Press",                   category: "push", muscle: "shoulders" },
+  { name: "Lateral Raise",                    category: "push", muscle: "shoulders" },
+  { name: "Overhead Cable Triceps Extension", category: "push", muscle: "triceps" },
+  { name: "Tricep Pushdowns",                 category: "push", muscle: "triceps" },
+  { name: "Cable Crunch",                     category: "push", muscle: "core" },
+  { name: "Neck Curls/Extensions",            category: "push", muscle: "neck" },
+  // PULL (11)
+  { name: "Deadlift",                         category: "pull", muscle: "back" },
+  { name: "Pull Up",                          category: "pull", muscle: "back" },
+  { name: "Lat Pulldowns",                    category: "pull", muscle: "back" },
+  { name: "Seated Cable Row",                 category: "pull", muscle: "back" },
+  { name: "Bayesian Cable Curl",              category: "pull", muscle: "biceps" },
+  { name: "Preacher Curl",                    category: "pull", muscle: "biceps" },
+  { name: "Dumbbell Shrugs",                  category: "pull", muscle: "traps" },
+  { name: "DB Wrist Curls/Extensions",        category: "pull", muscle: "forearms" },
+  { name: "Face Pulls",                       category: "pull", muscle: "rear delts" },
+  // LEGS (8) — Plank is a finisher, appended automatically
+  { name: "Goblet Squat",                     category: "legs", muscle: "quads" },
+  { name: "Squat",                            category: "legs", muscle: "quads" },
+  { name: "Walking Lunge",                    category: "legs", muscle: "quads" },
+  { name: "Romanian Deadlift",                category: "legs", muscle: "hamstrings" },
+  { name: "Seated Leg Curl",                  category: "legs", muscle: "hamstrings" },
+  { name: "Leg Extension",                    category: "legs", muscle: "quads" },
+  { name: "Standing Calf Raise",              category: "legs", muscle: "calves" },
+  { name: "Nautilus Glute Drive",             category: "legs", muscle: "glutes" },
+  { name: "Hanging Leg Raises",               category: "legs", muscle: "core" },
+  // FINISHER (auto-appended, excluded from selectWorkout pool)
+  { name: "Plank",                            category: "legs", muscle: "core", isometric: true, finisher: true },
 ];
+
+const SESSION_RULES = {
+  push: { count: 5, mustFill: ["chest","shoulders","triceps"], optional: ["core","neck"] },
+  pull: { count: 5, mustFill: ["back","biceps","rear delts"], optional: ["traps","forearms"] },
+  legs: { count: 5, mustFill: ["quads","hamstrings","calves"], optional: ["glutes","core"] }
+};
+
+const APPROVED_EXERCISES = EXERCISE_LIBRARY.map(e => e.name);
 
 const JOG_WARMUP = { name: '5-Min Treadmill Jog', sets: 1, repsRange: '5', suggestedWeight: 8.6, unit: 'mph', muscleGroup: 'Cardio', notes: '8.6 mph warmup — always first', isJog: true };
 
@@ -1498,6 +1505,54 @@ const JOG_WARMUP = { name: '5-Min Treadmill Jog', sets: 1, repsRange: '5', sugge
 const ISOMETRIC_EXERCISES = new Set([
   'Plank',
 ]);
+
+// ── BALANCED-RANDOM EXERCISE SELECTION ────────────────────────
+function selectWorkout(category) {
+  const rules = SESSION_RULES[category];
+  if (!rules) return [];
+  // Exclude finishers (Plank) — those are appended separately
+  const pool = EXERCISE_LIBRARY.filter(e => e.category === category && !e.finisher);
+  const selected = [];
+  const usedNames = new Set();
+
+  // 1. Fill each mustFill muscle with one random pick
+  for (const muscle of rules.mustFill) {
+    const candidates = pool.filter(e => e.muscle === muscle && !usedNames.has(e.name));
+    if (candidates.length === 0) continue;
+    const pick = candidates[Math.floor(Math.random() * candidates.length)];
+    selected.push(pick);
+    usedNames.add(pick.name);
+  }
+
+  // 2. Fill remaining slots randomly from pool, soft cap 2 per muscle
+  const remaining = () => pool.filter(e => !usedNames.has(e.name));
+  while (selected.length < rules.count && remaining().length > 0) {
+    const muscleCounts = {};
+    for (const e of selected) muscleCounts[e.muscle] = (muscleCounts[e.muscle] || 0) + 1;
+    // Prefer exercises whose muscle has <2 picks; allow >=2 only if nothing else available
+    const under2 = remaining().filter(e => (muscleCounts[e.muscle] || 0) < 2);
+    const pickFrom = under2.length > 0 ? under2 : remaining();
+    const pick = pickFrom[Math.floor(Math.random() * pickFrom.length)];
+    selected.push(pick);
+    usedNames.add(pick.name);
+  }
+
+  // 3. Sort: primary compounds first, accessories last
+  const primaryMuscles = new Set(['chest','back','quads']);
+  const accessoryMuscles = new Set(['neck','core','calves','forearms','traps']);
+  selected.sort((a, b) => {
+    const aP = primaryMuscles.has(a.muscle) ? 0 : accessoryMuscles.has(a.muscle) ? 2 : 1;
+    const bP = primaryMuscles.has(b.muscle) ? 0 : accessoryMuscles.has(b.muscle) ? 2 : 1;
+    return aP - bP;
+  });
+
+  // 5. Return in the shape workout cards expect
+  return selected.map(ex => {
+    const lastSession = state.exerciseHistory[ex.name]?.sessions?.slice(-1)[0];
+    const suggestedWeight = lastSession?.sets?.[0]?.weight ?? 45;
+    return { name: ex.name, sets: 3, repsRange: '8-12', suggestedWeight, unit: 'lbs', muscleGroup: ex.muscle, notes: '' };
+  });
+}
 
 const debounce = (fn, ms) => {
   let timeout;
@@ -1526,6 +1581,15 @@ function prependJogIfGymDay(exercises, scheduleType) {
   return [JOG_WARMUP, ...filtered];
 }
 
+const PLANK_FINISHER = { name: 'Plank', sets: 3, repsRange: '', suggestedWeight: 0, unit: 'lbs', muscleGroup: 'core', notes: 'Hold for max time each set', timeBased: true };
+
+function appendPlankIfGymDay(exercises, scheduleType) {
+  const type = (scheduleType || '').toLowerCase();
+  if (type !== 'push' && type !== 'pull' && type !== 'legs') return exercises;
+  const filtered = exercises.filter(e => e.name !== 'Plank');
+  return [...filtered, PLANK_FINISHER];
+}
+
 // ── STATE ────────────────────────────────────────────────────
 let state = {
   uid: null,
@@ -1550,31 +1614,19 @@ let state = {
   swimCoachReplyCount: 0,
 };
 
-window.__fc = { get state() { return state; }, saveProfile };
+window.__fc = { get state() { return state; }, saveProfile, selectWorkout, EXERCISE_LIBRARY, SESSION_RULES };
 
 let weightChartInst = null, weightChartBigInst = null;
 
 // ── SCHEDULE ─────────────────────────────────────────────────
-// 7-day rolling cycle: Push, Swim, Pull, Swim, Legs, Rest, Rest
-// Epoch: 2026-05-04 (Monday) = day 0 of cycle (Push)
-const SCHEDULE_EPOCH = new Date('2026-05-04T00:00:00');
-const CYCLE = ['push','swim','pull','swim','legs','rest','rest'];
-
-function getCycleType(dateObj) {
-  const msPerDay = 24 * 3600 * 1000;
-  const daysSinceEpoch = Math.floor((dateObj - SCHEDULE_EPOCH) / msPerDay);
-  const idx = ((daysSinceEpoch % 7) + 7) % 7; // handle negative mod
-  return CYCLE[idx];
-}
+// Fixed weekly split: Mon=Push, Tue=Swim, Wed=Pull, Thu=Swim, Fri=Legs, Sat=Rest, Sun=Rest
+// DOW: 0=Sun, 1=Mon, 2=Tue, 3=Wed, 4=Thu, 5=Fri, 6=Sat
+const WEEKLY_SCHEDULE = { 0:'rest', 1:'push', 2:'swim', 3:'pull', 4:'swim', 5:'legs', 6:'rest' };
 
 function getSchedule() {
-  const now = new Date();
-  // Build a schedule keyed by day-of-week (0=Sun…6=Sat) for the current week
   const base = {};
   for (let dow = 0; dow <= 6; dow++) {
-    const d = new Date(now);
-    d.setDate(now.getDate() + (dow - now.getDay())); // move to that DOW in current week
-    const type = getCycleType(d);
+    const type = WEEKLY_SCHEDULE[dow];
     base[dow] = { type, label: type.toUpperCase() };
   }
   // Apply any user overrides
@@ -2041,14 +2093,9 @@ window.loadQuickTemplate = async (type) => {
   if (type === 'swim') {
     exercises = [{ name:'Swimming', isSwim:true, sets:3, repsRange:'20', suggestedWeight:'Freestyle', unit:'stroke', muscleGroup:'Cardio', notes:'Track lengths per set. Total shown below sets.' }];
   } else {
-    exercises = APPROVED_EXERCISES
-      .filter(e => e.type === type || e.type === 'both')
-      .map(e => {
-        const lastSession = state.exerciseHistory[e.name]?.sessions?.slice(-1)[0];
-        const suggestedWeight = lastSession?.sets?.[0]?.weight ?? 45;
-        return { name: e.name, sets: e.sets || 3, repsRange: '8-12', suggestedWeight, unit: 'lbs', muscleGroup: type, notes: '' };
-      });
+    exercises = selectWorkout(type);
     exercises = prependJogIfGymDay(exercises, type);
+    exercises = appendPlankIfGymDay(exercises, type);
   }
   state.currentWorkout = exercises;
   renderExerciseList(exercises);
@@ -2664,68 +2711,12 @@ window.generateWorkout = async () => {
   const dow = selectedDay !== null ? selectedDay : new Date().getDay();
   const s = sched[dow];
   const today = todayStr();
-  const food = state.foodLog[today] || [];
-  const totalCals = food.reduce((a,b) => a+(b.calories||0), 0);
-  const totalProtein = food.reduce((a,b) => a+(b.protein||0), 0);
-  const latestWeight = state.weightLog.slice(-1)[0];
-
-  // Include any coach instructions from recent conversation
-  const recentCoachContext = state.chatHistory.slice(-6)
-    .map(m => (m.role === 'user' ? 'User: ' : 'Coach: ') + (m.parts?.[0]?.text || ''))
-    .join('\n');
-
-  const memoryContext = state.coachMemory && state.coachMemory.length > 0
-    ? '\n\nCOACH MEMORY - User preferences to respect:\n' + state.coachMemory.map(m => '- ' + m).join('\n')
-    : '';
-
-  // Derive push/pull lists from tagged exercise library
-  const dayExercises = APPROVED_EXERCISES
-    .filter(e => e.type === s.type || e.type === 'both')
-    .map(e => e.name);
-
-  const prompt = buildSystemPrompt() + memoryContext + `
-
-TODAY IS A ${s.label.toUpperCase()} DAY. You are generating a ${s.label} workout.
-
-CONTEXT: calories today: ${totalCals}kcal (target: ${state.profile.calorieTarget || 2200}), protein: ${Math.round(totalProtein)}g, weight: ${latestWeight ? latestWeight.weight+'lbs' : 'unknown'}.
-${recentCoachContext ? `\nRECENT COACH CONVERSATION (apply any exercise changes discussed):\n${recentCoachContext}\n` : ''}
-APPROVED EXERCISES FOR A ${s.label.toUpperCase()} DAY (pick 5-7 from this list only):
-${dayExercises.join(', ')}
-
-CRITICAL OUTPUT RULES — failure to follow these will break the app:
-- Return ONLY a valid JSON object. No text before or after. No greeting. No explanation. No markdown fences.
-- Start your response with { and end with }
-- Use exactly this structure:
-{"exercises":[{"name":"string","sets":number,"repsRange":"e.g. 8-12","suggestedWeight":number,"unit":"lbs","muscleGroup":"string","notes":"brief tip"}]}
-- suggestedWeight must be a number (realistic starting weight in lbs, not 0)
-- Do NOT include the treadmill jog — it is added automatically`;
-
-  try {
-    const res = await callGemini([{role:'user',parts:[{text:`Generate my ${s.label} workout`}]}], prompt);
-    // Strip anything before first { and after last } as safety net
-    const firstBrace = res.indexOf('{');
-    const lastBrace = res.lastIndexOf('}');
-    if (firstBrace === -1 || lastBrace === -1) throw new Error('No JSON object in response');
-    const clean = res.slice(firstBrace, lastBrace + 1);
-    const data = JSON.parse(clean);
-    if (!Array.isArray(data.exercises) || data.exercises.length === 0) throw new Error('Empty exercises array');
-    // Auto-populate weights from exercise history
-    data.exercises = data.exercises.map(ex => {
-      const lastSession = state.exerciseHistory[ex.name]?.sessions?.slice(-1)[0];
-      if (lastSession?.sets?.length > 0) ex.suggestedWeight = lastSession.sets[0].weight;
-      return ex;
-    });
-    data.exercises = prependJogIfGymDay(data.exercises, s.type);
-    state.currentWorkout = data.exercises;
-    renderExerciseList(data.exercises);
-    showWorkoutStartTime();
-    if (state.uid) await fbSet(`users/${state.uid}/workouts/${today}`, buildWatchWorkoutDoc(data.exercises, s.label, today));
-  } catch(e) {
-    console.error('[FitCoach] generateWorkout failed:', e);
-    document.getElementById('exerciseList').innerHTML = `
-      <div style="color:var(--red);font-size:13px;padding:8px 0">⚠️ Could not generate workout: ${e.message}</div>
-      <button onclick="generateWorkout()" style="margin-top:8px;background:#ff5c1a;border:none;border-radius:8px;color:#000;font-weight:700;padding:8px 16px;font-family:'Barlow Condensed',sans-serif;font-size:14px;cursor:pointer;">↺ Retry</button>`;
-  }
+  // Use balanced-random selection (no Gemini call for exercise picks)
+  const exercises = appendPlankIfGymDay(prependJogIfGymDay(selectWorkout(s.type), s.type), s.type);
+  state.currentWorkout = exercises;
+  renderExerciseList(exercises);
+  showWorkoutStartTime();
+  if (state.uid) await fbSet(`users/${state.uid}/workouts/${today}`, buildWatchWorkoutDoc(exercises, s.label, today));
 
   btn.innerHTML = 'Regenerate';
   btn.disabled = false;
@@ -2899,7 +2890,7 @@ function renderExerciseList(exercises) {
     <div style="margin-top:12px;display:flex;gap:8px;align-items:center;">
       <select id="addExerciseSelect" style="flex:1;background:#111;border:1px solid #333;border-radius:8px;color:#eee;padding:8px;font-size:14px;font-family:'Barlow Condensed',sans-serif;">
         <option value="">— Add exercise —</option>
-        ${APPROVED_EXERCISES.map(e => `<option value="${e.name}">${e.name}</option>`).join('')}
+        ${APPROVED_EXERCISES.map(name => `<option value="${name}">${name}</option>`).join('')}
       </select>
       <button onclick="addExercise()" style="background:#ff5c1a;border:none;border-radius:8px;color:#000;font-weight:700;padding:8px 14px;font-family:'Barlow Condensed',sans-serif;font-size:14px;cursor:pointer;">Add</button>
     </div>`;
@@ -3024,16 +3015,16 @@ window.addExercise = () => {
   if (!name) return;
   if (!state.currentWorkout) state.currentWorkout = [];
   captureWorkoutInputs();
-  const template = APPROVED_EXERCISES.find(e => e.name === name) || {};
-  const isSwimAdd = !!(template.isSwim || name === 'Swimming');
+  const libEntry = EXERCISE_LIBRARY.find(e => e.name === name);
+  const isSwimAdd = name === 'Swimming';
   const lastSession = state.exerciseHistory[name]?.sessions?.slice(-1)[0];
   state.currentWorkout.push({
-    ...template,
-    sets: template.sets || 3,
+    name,
+    sets: 3,
     repsRange: isSwimAdd ? '20' : '8-12',
     suggestedWeight: isSwimAdd ? 'Freestyle' : (lastSession?.sets?.[0]?.weight || 0),
     unit: isSwimAdd ? 'stroke' : 'lbs',
-    muscleGroup: template.type || '', notes: ''
+    muscleGroup: libEntry?.muscle || '', notes: ''
   });
   select.value = '';
   renderExerciseList(state.currentWorkout);
@@ -4709,6 +4700,7 @@ function detectAndApplyScheduleChanges(userMsg) {
   };
   const TYPE_MAP = {
     'push':'push','pushing':'push','pull':'pull','pulling':'pull',
+    'legs':'legs','leg':'legs','leg day':'legs',
     'swim':'swim','swimming':'swim','cardio':'swim','rest':'rest','off':'rest','recovery':'rest'
   };
   const msg = userMsg.toLowerCase();
@@ -4751,7 +4743,7 @@ The user just asked: "${userMsg}"
 You responded: "${coachReply.slice(0,400)}"
 
 APPROVED EXERCISE LIST — You MUST only select exercises from this list. Do not suggest any exercise outside this list:
-${APPROVED_EXERCISES.map(e=>e.name).join(', ')}
+${APPROVED_EXERCISES.join(', ')}
 
 Generate an UPDATED ${s.label} workout incorporating the changes discussed above, using only exercises from the approved list.
 Return ONLY valid JSON, no markdown, no explanation:
@@ -4765,7 +4757,7 @@ Include 5-7 exercises. Apply the changes the user requested.`;
     if (!jsonMatch) return;
     const data = JSON.parse(jsonMatch[0]);
     if (data.exercises && data.exercises.length > 0) {
-      data.exercises = prependJogIfGymDay(data.exercises, s.type);
+      data.exercises = appendPlankIfGymDay(prependJogIfGymDay(data.exercises, s.type), s.type);
       state.currentWorkout = data.exercises;
       renderExerciseList(data.exercises);
       showWorkoutStartTime();
@@ -4860,9 +4852,13 @@ TODAY (${today}, ${sched[dow]?.label} day):
 FOOD LOG (prior 6 days):
 ${foodHistoryLines}
 
-SCHEDULE: Mon/Wed/Fri = Gym (alternating Push/Pull each week), Tue or Thu = Swim, other days = Rest.
+SCHEDULE: Mon = Push, Tue = Swim, Wed = Pull, Thu = Swim, Fri = Legs, Sat/Sun = Rest.
 
-APPROVED EXERCISE LIBRARY — Push: ${APPROVED_EXERCISES.filter(e=>e.type==='push').map(e=>e.name).join(', ')} | Pull: ${APPROVED_EXERCISES.filter(e=>e.type==='pull').map(e=>e.name).join(', ')} | Both: ${APPROVED_EXERCISES.filter(e=>e.type==='both').map(e=>e.name).join(', ')}${memoryBlock}`;
+EXERCISE LIBRARY (category / muscle) — 29 exercises, 5 selected per gym day via balanced-random. Plank is an automatic finisher on every gym day (push/pull/legs).
+Push: ${EXERCISE_LIBRARY.filter(e=>e.category==='push').map(e=>`${e.name} (${e.muscle})`).join(', ')}
+Pull: ${EXERCISE_LIBRARY.filter(e=>e.category==='pull').map(e=>`${e.name} (${e.muscle})`).join(', ')}
+Legs: ${EXERCISE_LIBRARY.filter(e=>e.category==='legs'&&!e.finisher).map(e=>`${e.name} (${e.muscle})`).join(', ')}
+Finisher (auto-appended): Plank (core, isometric)${memoryBlock}`;
 }
 
 // ── GEMINI API ───────────────────────────────────────────────
@@ -5035,7 +5031,7 @@ function buildEditAddExerciseUI() {
   return `<div style="margin-top:12px;display:flex;gap:8px;align-items:center;">
     <select id="addEditExerciseSelect" style="flex:1;background:#111;border:1px solid #333;border-radius:8px;color:#eee;padding:8px;font-size:14px;font-family:'Barlow Condensed',sans-serif;">
       <option value="">— Add exercise —</option>
-      ${APPROVED_EXERCISES.map(e => `<option value="${e.name}">${e.name}</option>`).join('')}
+      ${APPROVED_EXERCISES.map(name => `<option value="${name}">${name}</option>`).join('')}
     </select>
     <button onclick="addEditExercise()" style="background:#ff5c1a;border:none;border-radius:8px;color:#000;font-weight:700;padding:8px 14px;font-family:'Barlow Condensed',sans-serif;font-size:14px;cursor:pointer;">Add</button>
   </div>`;
@@ -5191,14 +5187,14 @@ window.addEditExercise = () => {
   if (!name) return;
   if (!state.editWorkout) state.editWorkout = [];
   captureEditWorkoutInputs();
-  const template = APPROVED_EXERCISES.find(e => e.name === name) || {};
-  const isSwimAdd = !!(template.isSwim || name === 'Swimming');
+  const libEntry = EXERCISE_LIBRARY.find(e => e.name === name);
+  const isSwimAdd = name === 'Swimming';
   const lastSession = state.exerciseHistory[name]?.sessions?.slice(-1)[0];
   state.editWorkout.push({
-    ...template, sets: template.sets || 3,
+    name, sets: 3,
     repsRange: isSwimAdd ? '20' : '8-12',
     suggestedWeight: isSwimAdd ? 'Freestyle' : (lastSession?.sets?.[0]?.weight || 0),
-    unit: isSwimAdd ? 'stroke' : 'lbs', muscleGroup: template.type || '', notes: ''
+    unit: isSwimAdd ? 'stroke' : 'lbs', muscleGroup: libEntry?.muscle || '', notes: ''
   });
   select.value = '';
   renderEditExerciseList(state.editWorkout);
@@ -5642,7 +5638,7 @@ function renderCalendar() {
   // Populate exercise dropdown if empty
   const sel = document.getElementById('exHistorySelect');
   if (sel && sel.options.length === 1) {
-    APPROVED_EXERCISES.forEach(({name}) => {
+    APPROVED_EXERCISES.forEach(name => {
       const opt = document.createElement('option');
       opt.value = name; opt.textContent = name;
       sel.appendChild(opt);
