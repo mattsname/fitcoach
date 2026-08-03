@@ -4903,7 +4903,7 @@ window.handleChatPhoto = (input) => {
 function buildSystemPrompt() {
   const p = state.profile;
   const today = todayStr();
-  const log = state.weightLog.slice(-14);
+  const log = state.weightLog;
   const food = state.foodLog[today] || [];
   const totalCals = food.reduce((a,b)=>a+(b.calories||0),0);
   const totalProtein = food.reduce((a,b)=>a+(b.protein||0),0);
@@ -4937,7 +4937,7 @@ PROFILE: Age ${p.age || 'unknown'}, Height ${p.height || 'unknown'}in, Goal: ${p
 
 BACKGROUND: ${p.context || 'No prior history provided.'}
 
-RECENT WEIGHT (14 days): ${log.map(e=>`${e.date}: ${e.weight}lbs`).join(', ')||'No data'}
+FULL WEIGHT HISTORY (daily, oldest→newest, ${log.length} entries): ${log.map(e=>`${e.date}: ${e.weight}lbs`).join(', ')||'No data'}
 
 TODAY (${today}, ${sched[dow]?.label} day):
 - Calories: ${totalCals}/${p.calorieTarget || 2200}kcal
