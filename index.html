@@ -2174,6 +2174,15 @@ function bestRollingWindow(lengths, numLengths) {
   };
 }
 
+function computeSwimSplits(lengths) {
+  const result = {};
+  for (const [key, n] of [['s100',4],['s200',8],['s500',20],['s1000',40]]) {
+    const w = bestRollingWindow(lengths, n);
+    result[key] = w ? { timeSec: w.timeSec, pace100Sec: w.pace100Sec, startDist: w.startDist, endDist: w.endDist } : null;
+  }
+  return result;
+}
+
 function parseFormCsv(text) {
   const lines = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
   if (!lines[0].startsWith('Swim Date,Swim Title')) {
@@ -2293,7 +2302,8 @@ window.importSwimCsv = async (input) => {
     if (!confirm(`A swim session for ${swim.docDate} already exists. Overwrite?`)) return;
   }
 
-  const doc = { ...swim, importedAt: Date.now() };
+  const splits = computeSwimSplits(swim.lengths || []);
+  const doc = { ...swim, splits, importedAt: Date.now() };
   await fbSet(`users/${state.uid}/swims/${swim.docDate}`, doc);
   state.swims[swim.docDate] = doc;
 
@@ -2504,8 +2514,17 @@ function buildSwimDataContext() {
   if (prevDates.length > 0) {
     ctx += `\nPREVIOUS SWIMS:\n`;
     prevDates.forEach(d => {
-      const s = state.swims[d].summary;
+      const sw = state.swims[d];
+      const s = sw.summary;
       ctx += `  ${d}: ${s.totalDist}m, ${fmtDur(s.moveTime)} move, pace ${fmtDur(s.avgPace100)}/100m, SWOLF ${s.avgSWOLF > 0 ? s.avgSWOLF.toFixed(1) : '—'}, DPS ${s.avgDPS > 0 ? s.avgDPS.toFixed(2) : '—'}, HR ${s.avgHR > 0 ? Math.round(s.avgHR) : '—'}, drift ${s.hrDrift !== null ? s.hrDrift : '—'}\n`;
+      if (sw.splits) {
+        const parts = [];
+        for (const [label, key] of [['100m','s100'],['200m','s200'],['500m','s500'],['1000m','s1000']]) {
+          const sp = sw.splits[key];
+          if (sp) parts.push(`${label} ${fmtDurPrecise(sp.timeSec)} @ ${fmtDurPrecise(sp.pace100Sec)}/100m (${sp.startDist}–${sp.endDist}m)`);
+        }
+        if (parts.length > 0) ctx += `    Splits: ${parts.join('; ')}\n`;
+      }
     });
 
     // Trend hints (vs immediately previous swim)
