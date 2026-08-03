@@ -2126,6 +2126,54 @@ function swimMean(arr) {
   return v.length > 0 ? v.reduce((a, b) => a + b, 0) / v.length : 0;
 }
 
+// Format seconds to M:SS.ss (hundredths precision) for rolling splits
+function fmtDurPrecise(sec) {
+  if (!sec || sec <= 0) return '0:00.00';
+  const m = Math.floor(sec / 60);
+  const s = (sec % 60).toFixed(2);
+  return `${m}:${s.padStart(5, '0')}`;
+}
+
+// Compute the fastest window of numLengths consecutive 25m lengths by move time.
+// lengths: array of swim-length objects in swim order, each with moveSec and dist.
+// Returns { timeSec, startIdx, endIdx, startDist, endDist, pace100Sec } or null.
+function bestRollingWindow(lengths, numLengths) {
+  // NOTE: assumes a 25m pool — each length is 25m, and windowDist uses
+  // numLengths*25. If swims from a different pool length are ever imported,
+  // this and the *25 distance math must be generalized.
+  if (!lengths || lengths.length < numLengths) return null;
+  // Build cumulative distance array
+  const cumDist = [];
+  let running = 0;
+  for (let i = 0; i < lengths.length; i++) {
+    running += lengths[i].dist;
+    cumDist[i] = running;
+  }
+  // Initial window sum
+  let windowSum = 0;
+  for (let i = 0; i < numLengths; i++) windowSum += lengths[i].moveSec;
+  let bestSum = windowSum;
+  let bestStart = 0;
+  // Slide
+  for (let i = numLengths; i < lengths.length; i++) {
+    windowSum += lengths[i].moveSec - lengths[i - numLengths].moveSec;
+    if (windowSum < bestSum) {
+      bestSum = windowSum;
+      bestStart = i - numLengths + 1;
+    }
+  }
+  const endIdx = bestStart + numLengths - 1;
+  const windowDist = numLengths * 25;
+  return {
+    timeSec:    bestSum,
+    startIdx:   bestStart,
+    endIdx:     endIdx,
+    startDist:  cumDist[bestStart] - lengths[bestStart].dist,
+    endDist:    cumDist[endIdx],
+    pace100Sec: (bestSum / windowDist) * 100,
+  };
+}
+
 function parseFormCsv(text) {
   const lines = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
   if (!lines[0].startsWith('Swim Date,Swim Title')) {
@@ -2421,6 +2469,33 @@ function buildSwimDataContext() {
     ctx += `\nSET BREAKDOWN:\n`;
     sets.forEach(st => {
       ctx += `  Set ${st.setNum} (${st.structure}): ${st.dist}m, pace ${fmtDur(st.avgPace100)}/100m, SWOLF ${st.avgSWOLF > 0 ? st.avgSWOLF.toFixed(0) : '—'}, HR ${st.avgHR > 0 ? Math.round(st.avgHR) : '—'}, rest ${Math.round(st.restAfter)}s\n`;
+    });
+  }
+
+  // Best rolling splits (computed deterministically from per-length data)
+  const ll = latest.lengths || [];
+  if (ll.length >= 4) {
+    const splits = [
+      { label: '100m', w: bestRollingWindow(ll, 4) },
+      { label: '200m', w: bestRollingWindow(ll, 8) },
+      { label: '500m', w: bestRollingWindow(ll, 20) },
+      { label: '1000m', w: bestRollingWindow(ll, 40) },
+    ].filter(s => s.w);
+    if (splits.length > 0) {
+      ctx += `\nBEST ROLLING SPLITS (computed):\n`;
+      splits.forEach(({ label, w }) => {
+        ctx += `  ${label}: ${fmtDurPrecise(w.timeSec)} @ ${fmtDurPrecise(w.pace100Sec)}/100m, over the ${w.startDist}m–${w.endDist}m portion (lengths ${w.startIdx + 1}–${w.endIdx + 1})\n`;
+      });
+    }
+  }
+
+  // Per-length data (latest swim) for open-ended coach reasoning
+  if (ll.length > 0) {
+    ctx += `\nPER-LENGTH DATA (latest swim):\n`;
+    let cumDist = 0;
+    ll.forEach((l, i) => {
+      cumDist += l.dist;
+      ctx += `  #${i + 1}: ${cumDist}m, ${fmtDurPrecise(l.moveSec)} move, pace ${fmtDurPrecise(l.pace100Sec)}/100m, SWOLF ${l.swolf > 0 ? l.swolf.toFixed(0) : '—'}, HR ${l.hr > 0 ? Math.round(l.hr) : '—'}\n`;
     });
   }
 
