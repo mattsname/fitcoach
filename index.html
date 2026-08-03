@@ -4759,7 +4759,23 @@ async function updateCoachMemory() {
   const recentMessages = state.chatHistory.slice(-12)
     .map(m => (m.role === 'user' ? 'Matt: ' : 'Coach: ') + (m.parts?.[0]?.text || ''))
     .join('\n');
+  const existingMem = state.coachMemory.length
+    ? state.coachMemory.map((m, i) => `${i + 1}. ${m}`).join('\n')
+    : '(none yet)';
   const memPrompt = `Based on this conversation extract any fitness rules, preferences, injuries, goals or coaching decisions that should be remembered long term. Return ONLY a JSON array of strings, each a single clear memory under 20 words. Example: ["Always starts workouts with 5 min treadmill warmup", "Has left shoulder issue, avoid overhead press"]. If nothing new to remember return [].
+
+ONLY extract DURABLE facts that remain true across weeks or months: goals, targets, injuries, physical limitations, equipment access, schedule/routine preferences, coaching-style preferences.
+
+NEVER extract values that change day to day — these are already provided as live data and must not be frozen into memory:
+- current weight or any single weigh-in value
+- today's or any specific day's calories, protein, or macros
+- latest/most-recent workout numbers, swim splits, or session stats
+- any value tied to a specific date or "today"/"current"
+If a fact contains both a durable part and an ephemeral part (e.g. "protein target is 180g; today's intake was 153g"), extract ONLY the durable part ("protein target is 180g").
+
+Do NOT extract a fact that is already captured by an existing memory — avoid duplicates and near-duplicates.
+EXISTING MEMORIES:
+${existingMem}
 
 CONVERSATION:
 ${recentMessages}`;
