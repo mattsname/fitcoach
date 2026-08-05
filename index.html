@@ -1455,7 +1455,7 @@ const db = getFirestore(fbApp);
 
 // ── APPROVED EXERCISE LIBRARY ────────────────────────────────
 const EXERCISE_LIBRARY = [
-  // PUSH (10)
+  // PUSH (11)
   { name: "Bench Press",                      category: "push", muscle: "chest" },
   { name: "Dumbbell Bench Press",             category: "push", muscle: "chest" },
   { name: "Incline Bench Press",              category: "push", muscle: "chest" },
@@ -1465,6 +1465,7 @@ const EXERCISE_LIBRARY = [
   { name: "Overhead Cable Triceps Extension", category: "push", muscle: "triceps" },
   { name: "Tricep Pushdowns",                 category: "push", muscle: "triceps" },
   { name: "Cable Crunch",                     category: "push", muscle: "core" },
+  { name: "Pallof Press",                     category: "push", muscle: "core" },
   { name: "Neck Curls",                       category: "push", muscle: "neck" },
   // PULL (11)
   { name: "Deadlift",                         category: "pull", muscle: "back" },
@@ -1476,7 +1477,9 @@ const EXERCISE_LIBRARY = [
   { name: "Dumbbell Shrugs",                  category: "pull", muscle: "traps" },
   { name: "DB Wrist Curls",                   category: "pull", muscle: "forearms" },
   { name: "Face Pulls",                       category: "pull", muscle: "rear delts" },
-  // LEGS (8) — Plank is a finisher, appended automatically
+  { name: "Cable Wood Chopper",               category: "pull", muscle: "core" },
+  { name: "Dumbbell Pullover",                category: "pull", muscle: "back" },
+  // LEGS (9) — Plank is a finisher, appended automatically
   { name: "Goblet Squat",                     category: "legs", muscle: "quads" },
   { name: "Squat",                            category: "legs", muscle: "quads" },
   { name: "Walking Lunge",                    category: "legs", muscle: "quads" },
