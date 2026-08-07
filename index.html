@@ -2588,7 +2588,11 @@ function renderSwimChat() {
     } else {
       div.style.cssText = 'background:#1a1a1a;color:#eee;align-self:flex-start;border-radius:12px 12px 12px 4px;padding:8px 12px;max-width:80%;font-size:14px;';
     }
-    div.innerHTML = msg.role === 'model' ? formatBriefing(text) : text;
+    if (msg.role === 'model') {
+      div.innerHTML = formatBriefing(text);
+    } else {
+      div.textContent = text;
+    }
     container.appendChild(div);
   }
   container.scrollTop = container.scrollHeight;
@@ -3505,9 +3509,9 @@ function renderFoodLog() {
   empty.style.display = 'none';
   list.innerHTML = log.map((f,i) => `
     <div class="food-entry">
-      <div class="food-emoji">${f.emoji||'🍽'}</div>
+      <div class="food-emoji">${escapeHtml(f.emoji)||'🍽'}</div>
       <div class="food-info">
-        <div class="food-name">${f.time ? `<span style="font-size:11px;color:var(--muted)">${fmt12h(f.time)} · </span>` : ''}${qualityDot(f.quality)}${f.name}</div>
+        <div class="food-name">${f.time ? `<span style="font-size:11px;color:var(--muted)">${escapeHtml(fmt12h(f.time))} · </span>` : ''}${qualityDot(f.quality)}${escapeHtml(f.name)}</div>
         <div class="food-macros">P: ${Math.round(f.protein||0)}g · C: ${Math.round(f.carbs||0)}g · F: ${Math.round(f.fat||0)}g</div>
       </div>
       <div class="food-cals">${f.calories}</div>
@@ -4586,7 +4590,7 @@ window.analyseProgress = async () => {
   try {
     const res = await callGemini([{role:'user',parts}], buildSystemPrompt());
     document.getElementById('progressAnalysisCard').style.display = 'block';
-    document.getElementById('progressAnalysisText').innerHTML = formatText(res);
+    document.getElementById('progressAnalysisText').innerHTML = formatText(escapeHtml(res));
   } catch(e) { showToast('❌ Could not analyse photos'); }
   btn.innerHTML = '✨ Gemini Body Analysis';
   btn.disabled = false;
@@ -4627,7 +4631,7 @@ Format: one short paragraph (2-3 sentences max), then 2-3 bullet action points. 
     content.innerHTML = formatBriefing(res);
     renderTodayChat();
   } catch(e) {
-    content.innerHTML = `<div style="color:var(--muted);font-size:13px">Could not load briefing — ${e.message}</div>`;
+    content.innerHTML = `<div style="color:var(--muted);font-size:13px">Could not load briefing — ${escapeHtml(e.message)}</div>`;
   }
 }
 
@@ -4657,6 +4661,15 @@ window.sendBriefing = async () => {
   btn.disabled = false;
 };
 
+function escapeHtml(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 function formatBriefing(text) {
   const lines = text.split('\n').filter(l => l.trim());
   let html = '';
@@ -4665,10 +4678,10 @@ function formatBriefing(text) {
     const isBullet = /^[\-\*•→]/.test(line.trim());
     if (isBullet) {
       if (!inList) { html += '<ul class="briefing-bullets">'; inList = true; }
-      html += `<li>${line.replace(/^[\-\*•→]\s*/,'').replace(/\*\*(.*?)\*\*/g,'<strong>$1</strong>')}</li>`;
+      html += `<li>${escapeHtml(line.replace(/^[\-\*•→]\s*/,'')).replace(/\*\*(.*?)\*\*/g,'<strong>$1</strong>')}</li>`;
     } else {
       if (inList) { html += '</ul>'; inList = false; }
-      html += `<p class="briefing-text">${line.replace(/\*\*(.*?)\*\*/g,'<strong>$1</strong>')}</p>`;
+      html += `<p class="briefing-text">${escapeHtml(line).replace(/\*\*(.*?)\*\*/g,'<strong>$1</strong>')}</p>`;
     }
   }
   if (inList) html += '</ul>';
@@ -4697,7 +4710,11 @@ function renderTodayChat() {
     } else {
       div.style.cssText = 'background:#1a1a1a;color:#eee;align-self:flex-start;border-radius:12px 12px 12px 4px;padding:8px 12px;max-width:80%;font-size:14px;';
     }
-    div.innerHTML = msg.role === 'model' ? formatBriefing(text) : text;
+    if (msg.role === 'model') {
+      div.innerHTML = formatBriefing(text);
+    } else {
+      div.textContent = text;
+    }
     container.appendChild(div);
   }
   container.scrollTop = container.scrollHeight;
