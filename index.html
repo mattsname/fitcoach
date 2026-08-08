@@ -2187,7 +2187,7 @@ function bestRollingWindow(lengths, numLengths) {
 function computeSwimSplits(lengths, poolSize) {
   const pool = poolSize || (lengths && lengths[0] && lengths[0].dist) || 25;
   const result = {};
-  for (const [key, targetM] of [['s100',100],['s200',200],['s500',500],['s1000',1000]]) {
+  for (const [key, targetM] of [['s100',100],['s200',200],['s250',250],['s400',400],['s500',500],['s1000',1000],['s1500',1500],['s2000',2000]]) {
     const n = Math.round(targetM / pool);
     if (n < 2) { result[key] = null; continue; }
     const w = bestRollingWindow(lengths, n);
@@ -2536,7 +2536,7 @@ function buildSwimDataContext() {
   if (ll.length >= 1) {
     const liveSplits = computeSwimSplits(ll, latestPool);
     const parts = [];
-    for (const [key, targetM] of [['s100',100],['s200',200],['s500',500],['s1000',1000]]) {
+    for (const [key, targetM] of [['s100',100],['s200',200],['s250',250],['s400',400],['s500',500],['s1000',1000],['s1500',1500],['s2000',2000]]) {
       const sp = liveSplits[key];
       if (!sp) continue;
       const distLabel = sp.distM === sp.targetM ? `${sp.targetM}m` : `${sp.targetM}m target: best ${sp.distM}m`;
@@ -2569,7 +2569,7 @@ function buildSwimDataContext() {
       ctx += `  ${d}: ${s.totalDist}m, ${fmtDur(s.moveTime)} move, pace ${fmtDur(s.avgPace100)}/100m, SWOLF ${s.avgSWOLF > 0 ? s.avgSWOLF.toFixed(1) : '—'}, DPS ${s.avgDPS > 0 ? s.avgDPS.toFixed(2) : '—'}, HR ${s.avgHR > 0 ? Math.round(s.avgHR) : '—'}, drift ${s.hrDrift !== null ? s.hrDrift : '—'}${swPool ? ', ' + swPool : ''}\n`;
       if (sw.splits) {
         const parts = [];
-        for (const [key, targetM] of [['s100',100],['s200',200],['s500',500],['s1000',1000]]) {
+        for (const [key, targetM] of [['s100',100],['s200',200],['s250',250],['s400',400],['s500',500],['s1000',1000],['s1500',1500],['s2000',2000]]) {
           const sp = sw.splits[key];
           if (!sp) continue;
           // New shape has distM/targetM/poolSize; old shape (pre-generalization) does not
