@@ -2143,13 +2143,11 @@ function fmtDurPrecise(sec) {
   return `${m}:${s.padStart(5, '0')}`;
 }
 
-// Compute the fastest window of numLengths consecutive 25m lengths by move time.
+// Compute the fastest window of numLengths consecutive lengths by move time.
+// Pool-agnostic: uses actual len.dist for distance, works for any pool size.
 // lengths: array of swim-length objects in swim order, each with moveSec and dist.
-// Returns { timeSec, startIdx, endIdx, startDist, endDist, pace100Sec } or null.
+// Returns { timeSec, startIdx, endIdx, startDist, endDist, pace100Sec, distM } or null.
 function bestRollingWindow(lengths, numLengths) {
-  // NOTE: assumes a 25m pool — each length is 25m, and windowDist uses
-  // numLengths*25. If swims from a different pool length are ever imported,
-  // this and the *25 distance math must be generalized.
   if (!lengths || lengths.length < numLengths) return null;
   // Build cumulative distance array
   const cumDist = [];
@@ -2172,22 +2170,38 @@ function bestRollingWindow(lengths, numLengths) {
     }
   }
   const endIdx = bestStart + numLengths - 1;
-  const windowDist = numLengths * 25;
+  const startDist = cumDist[bestStart] - lengths[bestStart].dist;
+  const endDist = cumDist[endIdx];
+  const windowDist = endDist - startDist;
   return {
     timeSec:    bestSum,
     startIdx:   bestStart,
     endIdx:     endIdx,
-    startDist:  cumDist[bestStart] - lengths[bestStart].dist,
-    endDist:    cumDist[endIdx],
-    pace100Sec: (bestSum / windowDist) * 100,
+    startDist:  startDist,
+    endDist:    endDist,
+    pace100Sec: windowDist > 0 ? (bestSum / windowDist) * 100 : 0,
+    distM:      windowDist,
   };
 }
 
-function computeSwimSplits(lengths) {
+function computeSwimSplits(lengths, poolSize) {
+  const pool = poolSize || (lengths && lengths[0] && lengths[0].dist) || 25;
   const result = {};
-  for (const [key, n] of [['s100',4],['s200',8],['s500',20],['s1000',40]]) {
+  for (const [key, targetM] of [['s100',100],['s200',200],['s500',500],['s1000',1000]]) {
+    const n = Math.round(targetM / pool);
+    if (n < 2) { result[key] = null; continue; }
     const w = bestRollingWindow(lengths, n);
-    result[key] = w ? { timeSec: w.timeSec, pace100Sec: w.pace100Sec, startDist: w.startDist, endDist: w.endDist } : null;
+    if (!w) { result[key] = null; continue; }
+    if (w.distM < targetM * 0.8 || w.distM > targetM * 1.5) { result[key] = null; continue; }
+    result[key] = {
+      timeSec: w.timeSec,
+      pace100Sec: w.pace100Sec,
+      startDist: w.startDist,
+      endDist: w.endDist,
+      distM: w.distM,
+      targetM: targetM,
+      poolSize: pool,
+    };
   }
   return result;
 }
@@ -2311,7 +2325,7 @@ window.importSwimCsv = async (input) => {
     if (!confirm(`A swim session for ${swim.docDate} already exists. Overwrite?`)) return;
   }
 
-  const splits = computeSwimSplits(swim.lengths || []);
+  const splits = computeSwimSplits(swim.lengths || [], swim.meta && swim.meta.poolSize);
   const doc = { ...swim, splits, importedAt: Date.now() };
   await fbSet(`users/${state.uid}/swims/${swim.docDate}`, doc);
   state.swims[swim.docDate] = doc;
@@ -2518,18 +2532,19 @@ function buildSwimDataContext() {
 
   // Best rolling splits (computed deterministically from per-length data)
   const ll = latest.lengths || [];
-  if (ll.length >= 4) {
-    const splits = [
-      { label: '100m', w: bestRollingWindow(ll, 4) },
-      { label: '200m', w: bestRollingWindow(ll, 8) },
-      { label: '500m', w: bestRollingWindow(ll, 20) },
-      { label: '1000m', w: bestRollingWindow(ll, 40) },
-    ].filter(s => s.w);
-    if (splits.length > 0) {
+  const latestPool = latest.meta && latest.meta.poolSize;
+  if (ll.length >= 1) {
+    const liveSplits = computeSwimSplits(ll, latestPool);
+    const parts = [];
+    for (const [key, targetM] of [['s100',100],['s200',200],['s500',500],['s1000',1000]]) {
+      const sp = liveSplits[key];
+      if (!sp) continue;
+      const distLabel = sp.distM === sp.targetM ? `${sp.targetM}m` : `${sp.targetM}m target: best ${sp.distM}m`;
+      parts.push(`  ${distLabel} in ${fmtDurPrecise(sp.timeSec)} @ ${fmtDurPrecise(sp.pace100Sec)}/100m (${sp.poolSize}m pool, over ${sp.startDist}m–${sp.endDist}m)`);
+    }
+    if (parts.length > 0) {
       ctx += `\nBEST ROLLING SPLITS (computed):\n`;
-      splits.forEach(({ label, w }) => {
-        ctx += `  ${label}: ${fmtDurPrecise(w.timeSec)} @ ${fmtDurPrecise(w.pace100Sec)}/100m, over the ${w.startDist}m–${w.endDist}m portion (lengths ${w.startIdx + 1}–${w.endIdx + 1})\n`;
-      });
+      ctx += parts.join('\n') + '\n';
     }
   }
 
@@ -2550,12 +2565,21 @@ function buildSwimDataContext() {
     prevDates.forEach(d => {
       const sw = state.swims[d];
       const s = sw.summary;
-      ctx += `  ${d}: ${s.totalDist}m, ${fmtDur(s.moveTime)} move, pace ${fmtDur(s.avgPace100)}/100m, SWOLF ${s.avgSWOLF > 0 ? s.avgSWOLF.toFixed(1) : '—'}, DPS ${s.avgDPS > 0 ? s.avgDPS.toFixed(2) : '—'}, HR ${s.avgHR > 0 ? Math.round(s.avgHR) : '—'}, drift ${s.hrDrift !== null ? s.hrDrift : '—'}\n`;
+      const swPool = sw.meta && sw.meta.poolSize ? `${sw.meta.poolSize}m pool` : '';
+      ctx += `  ${d}: ${s.totalDist}m, ${fmtDur(s.moveTime)} move, pace ${fmtDur(s.avgPace100)}/100m, SWOLF ${s.avgSWOLF > 0 ? s.avgSWOLF.toFixed(1) : '—'}, DPS ${s.avgDPS > 0 ? s.avgDPS.toFixed(2) : '—'}, HR ${s.avgHR > 0 ? Math.round(s.avgHR) : '—'}, drift ${s.hrDrift !== null ? s.hrDrift : '—'}${swPool ? ', ' + swPool : ''}\n`;
       if (sw.splits) {
         const parts = [];
-        for (const [label, key] of [['100m','s100'],['200m','s200'],['500m','s500'],['1000m','s1000']]) {
+        for (const [key, targetM] of [['s100',100],['s200',200],['s500',500],['s1000',1000]]) {
           const sp = sw.splits[key];
-          if (sp) parts.push(`${label} ${fmtDurPrecise(sp.timeSec)} @ ${fmtDurPrecise(sp.pace100Sec)}/100m (${sp.startDist}–${sp.endDist}m)`);
+          if (!sp) continue;
+          // New shape has distM/targetM/poolSize; old shape (pre-generalization) does not
+          if (sp.distM != null) {
+            const distLabel = sp.distM === sp.targetM ? `${sp.targetM}m` : `${sp.targetM}m(=${sp.distM}m)`;
+            parts.push(`${distLabel} ${fmtDurPrecise(sp.timeSec)} @ ${fmtDurPrecise(sp.pace100Sec)}/100m (${sp.startDist}–${sp.endDist}m)`);
+          } else {
+            // Old stored splits: assume label matches (all old swims were 25m)
+            parts.push(`${targetM}m ${fmtDurPrecise(sp.timeSec)} @ ${fmtDurPrecise(sp.pace100Sec)}/100m (${sp.startDist}–${sp.endDist}m)`);
+          }
         }
         if (parts.length > 0) ctx += `    Splits: ${parts.join('; ')}\n`;
       }
@@ -2571,6 +2595,12 @@ function buildSwimDataContext() {
     ctx += `  Pace: ${paceDelta > 0 ? '+' : ''}${paceDelta.toFixed(1)}s/100m (${paceDelta < 0 ? 'faster' : paceDelta > 0 ? 'slower' : 'same'})\n`;
     ctx += `  SWOLF: ${swolfDelta > 0 ? '+' : ''}${swolfDelta.toFixed(1)} (${swolfDelta < 0 ? 'improved' : swolfDelta > 0 ? 'worse' : 'same'})\n`;
     ctx += `  Distance: ${distDelta > 0 ? '+' : ''}${distDelta}m\n`;
+  }
+
+  // Pool-length coaching note (only when multiple pool sizes exist in history)
+  const poolSizes = [...new Set(dates.map(d => state.swims[d].meta && state.swims[d].meta.poolSize).filter(Boolean))];
+  if (poolSizes.length > 1) {
+    ctx += `\nNOTE: These swims span different pool lengths (${poolSizes.sort((a,b)=>a-b).join('m, ')}m). Pool length affects pace — fewer wall push-offs in longer pools means a slower time for the same fitness. Compare like-for-like where possible, and mention pool length when comparing swims from different pools.\n`;
   }
 
   return ctx;
