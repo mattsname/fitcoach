@@ -1364,7 +1364,13 @@ input[type="file"] { display: none; }
           </div>
         </div>
         <!-- Per-set breakdown -->
-        <div style="font-size:11px;color:var(--muted);letter-spacing:0.5px;margin-bottom:6px">SET BREAKDOWN</div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+          <div style="font-size:11px;color:var(--muted);letter-spacing:0.5px">SET BREAKDOWN</div>
+          <div style="display:flex;gap:6px">
+            <button id="swimBreakdownMode_sets" onclick="setSwimBreakdownMode('sets')" style="font-size:10px;padding:2px 8px;border:1px solid #444;border-radius:5px;background:transparent;color:#eee;cursor:pointer;font-family:'Barlow Condensed',sans-serif">Sets</button>
+            <button id="swimBreakdownMode_laps" onclick="setSwimBreakdownMode('laps')" style="font-size:10px;padding:2px 8px;border:1px solid #444;border-radius:5px;background:transparent;color:#eee;cursor:pointer;font-family:'Barlow Condensed',sans-serif;opacity:0.5">Laps</button>
+          </div>
+        </div>
         <div id="swimSetBreakdown" style="display:flex;flex-direction:column;gap:4px"></div>
       </div>
 
@@ -2321,6 +2327,7 @@ window.importSwimCsv = async (input) => {
 };
 
 let swimTabMetric = 'dist';
+let swimBreakdownMode = 'sets';
 let swimSelectedDate = null;
 
 window.setSwimChartMetric = (metric) => {
@@ -2328,6 +2335,13 @@ window.setSwimChartMetric = (metric) => {
   document.getElementById('swimChartMetric_dist').style.opacity = metric === 'dist' ? '1' : '0.5';
   document.getElementById('swimChartMetric_pace').style.opacity = metric === 'pace' ? '1' : '0.5';
   renderSwimHistoryChart();
+};
+
+window.setSwimBreakdownMode = (mode) => {
+  swimBreakdownMode = mode;
+  document.getElementById('swimBreakdownMode_sets').style.opacity = mode === 'sets' ? '1' : '0.5';
+  document.getElementById('swimBreakdownMode_laps').style.opacity = mode === 'laps' ? '1' : '0.5';
+  renderSwimSummary(swimSelectedDate);
 };
 
 function renderSwimPanel(selectDate) {
@@ -2368,7 +2382,23 @@ function renderSwimSummary(date) {
   document.getElementById('swimStatDrift').textContent = s.hrDrift !== null ? `${s.hrDrift > 0 ? '+' : ''}${s.hrDrift}` : '—';
 
   const breakdown = document.getElementById('swimSetBreakdown');
-  breakdown.innerHTML = (swim.sets || []).map(st => `
+  const laps = swim.lengths || [];
+  if (swimBreakdownMode === 'laps' && laps.length > 0) {
+    let cumDist = 0;
+    breakdown.innerHTML = laps.map((len, i) => {
+      cumDist += len.dist;
+      return `
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:5px 8px;background:#111;border-radius:6px;font-size:12px">
+      <span style="color:var(--muted)">Lap ${i + 1}</span>
+      <span style="color:#5ab4ff;font-weight:700">${cumDist}m</span>
+      <span style="color:var(--muted)">${fmtDurPrecise(len.moveSec)}</span>
+      <span style="color:var(--muted)">${fmtDur(len.pace100Sec)}/100m</span>
+      <span style="color:#3dffc0">SWOLF ${len.swolf > 0 ? len.swolf : '—'}</span>
+      ${len.hr > 0 ? `<span style="color:var(--muted)">${len.hr}bpm</span>` : ''}
+    </div>`;
+    }).join('');
+  } else {
+    breakdown.innerHTML = (swim.sets || []).map(st => `
     <div style="display:flex;justify-content:space-between;align-items:center;padding:5px 8px;background:#111;border-radius:6px;font-size:12px">
       <span style="color:var(--muted)">Set ${st.setNum}</span>
       <span style="color:#5ab4ff;font-weight:700">${st.dist}m</span>
@@ -2376,6 +2406,7 @@ function renderSwimSummary(date) {
       <span style="color:#3dffc0">SWOLF ${st.avgSWOLF > 0 ? st.avgSWOLF.toFixed(0) : '—'}</span>
       ${st.restAfter > 0 ? `<span style="color:var(--muted)">rest ${Math.round(st.restAfter)}s</span>` : ''}
     </div>`).join('');
+  }
 }
 
 function renderSwimHistoryChart() {
