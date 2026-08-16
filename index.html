@@ -328,6 +328,17 @@ textarea { resize: none; }
   flex-shrink: 0;
 }
 .exercise-row.completed .exercise-num { background: rgba(61,255,192,0.15); color: var(--green); }
+.drag-handle {
+  width: 32px; height: 36px;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--muted); font-size: 16px; cursor: grab;
+  flex-shrink: 0; touch-action: none; user-select: none;
+  -webkit-user-select: none; margin-left: -4px;
+}
+.drag-handle:active { cursor: grabbing; }
+.exercise-row.dragging { opacity: 0.4; }
+.exercise-row.drag-over-above { box-shadow: 0 -2px 0 0 #ff5c1a; }
+.exercise-row.drag-over-below { box-shadow: 0 2px 0 0 #ff5c1a; }
 .exercise-info { flex: 1; }
 .exercise-name {
   font-family: 'Barlow Semi Condensed', sans-serif;
@@ -3031,6 +3042,7 @@ function renderExerciseList(exercises) {
 
     return `<div class="exercise-row" id="ex-${ei}">
       <div class="exercise-header" onclick="toggleExercise(${ei})">
+        <div class="drag-handle" data-drag-idx="${ei}" onpointerdown="handleDragStart(event, ${ei})">⠿</div>
         <div class="exercise-num">${ei+1}</div>
         <div class="exercise-info">
           <div class="exercise-name">${ex.name}</div>
@@ -3098,6 +3110,63 @@ window.toggleSetDone = (btn) => {
   if (allDone) row.classList.add('completed');
   else row.classList.remove('completed');
 };
+
+// ── DRAG-TO-REORDER EXERCISES ──────────────────────────────────
+let _drag = null; // { idx, pointerId, el }
+
+window.handleDragStart = (e, idx) => {
+  e.stopPropagation();   // don't trigger toggleExercise
+  e.preventDefault();    // prevent text selection / default touch behavior
+  const row = document.getElementById(`ex-${idx}`);
+  if (!row) return;
+  row.setPointerCapture(e.pointerId);
+  _drag = { idx, pointerId: e.pointerId, el: row };
+  row.classList.add('dragging');
+  row.addEventListener('pointermove', handleDragMove);
+  row.addEventListener('pointerup', handleDragEnd);
+  row.addEventListener('pointercancel', handleDragEnd);
+};
+
+function getDragTargetIndex(clientY) {
+  const rows = document.getElementById('exerciseList').querySelectorAll('.exercise-row');
+  for (let i = 0; i < rows.length; i++) {
+    const rect = rows[i].getBoundingClientRect();
+    if (clientY < rect.top + rect.height / 2) return i;
+  }
+  return rows.length - 1; // below all rows = last position
+}
+
+function handleDragMove(e) {
+  if (!_drag) return;
+  e.preventDefault(); // stop page scroll on touch
+  const rows = document.getElementById('exerciseList').querySelectorAll('.exercise-row');
+  rows.forEach(r => { r.classList.remove('drag-over-above', 'drag-over-below'); });
+  const target = getDragTargetIndex(e.clientY);
+  if (target !== _drag.idx && rows[target]) {
+    rows[target].classList.add(target < _drag.idx ? 'drag-over-above' : 'drag-over-below');
+  }
+}
+
+function handleDragEnd(e) {
+  if (!_drag) return;
+  const oldIndex = _drag.idx;
+  const dragEl = _drag.el;
+  dragEl.releasePointerCapture(_drag.pointerId);
+  dragEl.removeEventListener('pointermove', handleDragMove);
+  dragEl.removeEventListener('pointerup', handleDragEnd);
+  dragEl.removeEventListener('pointercancel', handleDragEnd);
+  dragEl.classList.remove('dragging');
+  const rows = document.getElementById('exerciseList').querySelectorAll('.exercise-row');
+  rows.forEach(r => { r.classList.remove('drag-over-above', 'drag-over-below'); });
+  const newIndex = getDragTargetIndex(e.clientY);
+  _drag = null;
+  if (newIndex === oldIndex) return; // no-op
+  captureWorkoutInputs();
+  const [moved] = state.currentWorkout.splice(oldIndex, 1);
+  state.currentWorkout.splice(newIndex, 0, moved);
+  renderExerciseList(state.currentWorkout);
+  syncTodayWorkoutToWatch();
+}
 
 window.saveSetData = (exIdx, setIdx) => {
   // Data saved inline in inputs, saved to Firebase on saveWorkout()
