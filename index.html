@@ -832,6 +832,7 @@ input[type="file"] { display: none; }
 .cal-dot.workout { background:#ff5c1a; }
 .cal-dot.food { background:#3dffc0; }
 .cal-dot.weight { background:#4a9eff; }
+.cal-dot.swim { background:#a855f7; }
 </style>
 </head>
 <body>
@@ -1195,6 +1196,7 @@ input[type="file"] { display: none; }
           <div style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--muted)"><div class="cal-dot workout"></div> Workout</div>
           <div style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--muted)"><div class="cal-dot food"></div> Food</div>
           <div style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--muted)"><div class="cal-dot weight"></div> Weight</div>
+          <div style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--muted)"><div class="cal-dot swim"></div> Swim</div>
         </div>
       </div>
 
@@ -5114,7 +5116,15 @@ TODAY (${today}, ${sched[dow]?.label} day):
 FOOD LOG (prior 6 days):
 ${foodHistoryLines}
 
-SCHEDULE: Mon = Push, Tue = Swim, Wed = Pull, Thu = Swim, Fri = Legs, Sat/Sun = Rest.
+${(() => {
+  const swimDates = Object.keys(state.swims || {}).sort().reverse().slice(0, 10);
+  if (swimDates.length === 0) return '';
+  const lines = swimDates.map(d => {
+    const sm = state.swims[d].summary;
+    return `- ${d}: ${sm.totalDist}m, ${fmtDur(sm.moveTime)} move time, ${fmtDur(sm.avgPace100)}/100m avg pace`;
+  }).join('\n');
+  return `RECENT SWIM SESSIONS (from FORM goggles imports, last ${swimDates.length}):\n${lines}\nNote: the dedicated swim coach handles detailed swim analysis (splits, technique, SWOLF). Use these for overall training load, recovery, and nutrition context.\n`;
+})()}SCHEDULE: Mon = Push, Tue = Swim, Wed = Pull, Thu = Swim, Fri = Legs, Sat/Sun = Rest.
 
 EXERCISE LIBRARY (category / muscle) — 29 exercises, 5 selected per gym day via balanced-random. Plank is an automatic finisher on every gym day (push/pull/legs).
 Push: ${EXERCISE_LIBRARY.filter(e=>e.category==='push').map(e=>`${e.name} (${e.muscle})`).join(', ')}
@@ -5868,6 +5878,7 @@ function renderCalendar() {
     (hist.sessions || []).forEach(s => workoutDates.add(s.date));
   });
   const weightDateSet = new Set(state.weightLog.map(e => e.date));
+  const swimDates = new Set(Object.keys(state.swims || {}));
   const today = todayStr();
 
   const firstDow = new Date(calYear, calMonth, 1).getDay();
@@ -5884,8 +5895,10 @@ function renderCalendar() {
     const hasWorkout = workoutDates.has(ds);
     const hasWeight = weightDateSet.has(ds);
     const hasFood = !!(state.foodLog[ds] && state.foodLog[ds].length > 0);
+    const hasSwim = swimDates.has(ds);
     const dots = [
       hasWorkout ? '<div class="cal-dot workout"></div>' : '',
+      hasSwim    ? '<div class="cal-dot swim"></div>'    : '',
       hasFood    ? '<div class="cal-dot food"></div>'    : '',
       hasWeight  ? '<div class="cal-dot weight"></div>'  : '',
     ].join('');
@@ -5977,6 +5990,19 @@ window.selectCalDay = async (ds) => {
       </div>`;
     });
     html += `</div>`;
+  }
+
+  const swimDoc = (state.swims || {})[ds];
+  if (swimDoc && swimDoc.summary) {
+    any = true;
+    const sm = swimDoc.summary;
+    html += `<div style="margin-bottom:10px"><div style="font-size:11px;color:var(--muted);letter-spacing:1px;margin-bottom:6px">🏊 SWIM (FORM import)</div>
+      <div style="padding:8px 10px;background:#1a1a1a;border-radius:8px">
+        <div style="font-size:20px;font-weight:800;color:#a855f7">${sm.totalDist}m</div>
+        <div style="font-size:13px;color:var(--muted);margin-top:4px">${fmtDur(sm.moveTime)} move time · ${fmtDur(sm.avgPace100)}/100m avg pace</div>
+        ${sm.avgSWOLF ? `<div style="font-size:12px;color:var(--muted);margin-top:2px">SWOLF ${sm.avgSWOLF.toFixed(1)} · ${sm.sets || '?'} sets · ${sm.lengths || '?'} lengths</div>` : ''}
+      </div>
+    </div>`;
   }
 
   if (!any) html += `<div style="color:var(--muted);font-size:13px">No data recorded for this day.</div>`;
