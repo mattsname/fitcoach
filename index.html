@@ -2238,26 +2238,38 @@ function parseFormCsv(text) {
   }
   if (detailHeaderIdx === -1) throw new Error('Not a FORM CSV: could not find per-length detail header');
 
+  // Find the CSV's baked-in length from the first non-REST row to compute scale factor
+  let csvRowLen = 0;
+  for (let i = detailHeaderIdx + 1; i < lines.length; i++) {
+    const c = lines[i].trim().split(',');
+    if (c.length >= 20 && c[6] !== 'REST') { csvRowLen = parseFloat(c[5]) || 0; break; }
+  }
+  const scaleFactor = csvRowLen > 0 ? poolSize / csvRowLen : 1;
+
   const rows = [];
   for (let i = detailHeaderIdx + 1; i < lines.length; i++) {
     const line = lines[i].trim();
     if (!line) continue;
     const c = line.split(',');
     if (c.length < 20) continue;
+    const isRest = c[6] === 'REST';
+    const dist = isRest ? 0 : poolSize;
+    const moveSec = swimParseDur(c[7]);
+    const strokes = parseFloat(c[21]) || 0;
     rows.push({
-      isRest:        c[6] === 'REST',
+      isRest,
       setNum:        parseInt(c[2]),
       setStructure:  c[3],
-      dist:          parseFloat(c[11]) || 0,
-      moveSec:       swimParseDur(c[7]),
+      dist,
+      moveSec,
       restSec:       swimParseDur(c[8]),
-      dps:           parseFloat(c[13]) || 0,
+      dps:           parseFloat(c[13]) * scaleFactor || 0,
       avgBpm:        parseFloat(c[14]) || 0,
       maxBpm:        parseFloat(c[15]) || 0,
-      pace100Str:    c[17],
+      pace100Sec:    (!isRest && dist > 0 && moveSec > 0) ? (moveSec / dist) * 100 : 0,
       swolf:         parseFloat(c[19]) || 0,
       strkRate:      parseFloat(c[20]) || 0,
-      strokes:       parseFloat(c[21]) || 0,
+      strokes,
       strokesPerLen: parseFloat(c[22]) || 0,
       calories:      parseFloat(c[23]) || 0,
     });
@@ -2271,7 +2283,7 @@ function parseFormCsv(text) {
   const restTime   = rows.reduce((s, r) => s + r.restSec, 0);
   const totalTime  = moveTime + restTime;
   const avgPace100 = totalDist > 0 ? (moveTime / totalDist) * 100 : 0;
-  const pace100Secs = swimRows.map(r => swimParseDur(r.pace100Str)).filter(v => v > 0);
+  const pace100Secs = swimRows.map(r => r.pace100Sec).filter(v => v > 0);
   const bestPace100 = pace100Secs.length > 0 ? Math.min(...pace100Secs) : 0;
   const avgDPS          = swimMean(swimRows.map(r => r.dps));
   const avgSWOLF        = swimMean(swimRows.map(r => r.swolf));
@@ -2316,7 +2328,7 @@ function parseFormCsv(text) {
   const lengthsArr = swimRows.map(r => ({
     set: r.setNum, dist: r.dist, moveSec: r.moveSec, dps: r.dps,
     swolf: r.swolf, strkRate: r.strkRate, strokes: r.strokes,
-    hr: r.avgBpm, pace100Sec: swimParseDur(r.pace100Str),
+    hr: r.avgBpm, pace100Sec: r.pace100Sec,
   }));
 
   return { docDate, meta: { startTime, endTime, poolSize, hrDevice, poolUnit: 'm' }, summary, sets: setsBreakdown, lengths: lengthsArr };
