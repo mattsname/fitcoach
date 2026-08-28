@@ -2647,7 +2647,12 @@ function buildSwimSystemPrompt() {
     ? `Recent weight: ${weightRecent[weightRecent.length - 1].weight} lbs (${weightRecent.length > 1 ? (weightRecent[weightRecent.length - 1].weight - weightRecent[0].weight > 0 ? '+' : '') + (weightRecent[weightRecent.length - 1].weight - weightRecent[0].weight).toFixed(1) + ' lbs over ' + weightRecent.length + ' days' : 'single entry'})`
     : '';
 
-  return `You are Matt's dedicated swim coach. Expert in freestyle technique for a 43-year-old male swimming in a 25m pool, 2–3 times per week, typical session ~1500m. You are NOT the gym or nutrition coach — stay focused on swimming.
+  const dates = Object.keys(state.swims).sort();
+  const latestSwim = dates.length > 0 ? state.swims[dates[dates.length - 1]] : null;
+  const poolDesc = latestSwim && latestSwim.meta && latestSwim.meta.poolSize
+    ? ` swimming in a ${fmtDist(latestSwim.meta.poolSize)}m pool,` : '';
+
+  return `You are Matt's dedicated swim coach. Expert in freestyle technique for a 43-year-old male${poolDesc} 2–3 times per week, typical session ~1500m. You are NOT the gym or nutrition coach — stay focused on swimming.
 
 STYLE: Direct, specific, metric-grounded. Every substantive reply must reference actual numbers from the data provided. Give 1–2 concrete focus points per swim. No generic filler, no "Great swim!" without backing it up with data. End coaching replies with one clear "NEXT SWIM FOCUS:" when appropriate.
 
@@ -2752,6 +2757,8 @@ async function updateSwimCoachMemory() {
     .join('\n');
   const memPrompt = `Based on this swim coaching conversation, extract any swimming-related rules, preferences, technique cues, goals, injuries, or coaching decisions that should be remembered long term. Return ONLY a JSON array of strings, each a single clear memory under 20 words. Example: ["Targets sub-1:50/100m pace by end of summer", "Tends to drop elbow on breathing stroke"]. If nothing new to remember return [].
 
+IMPORTANT: Do NOT store computed statistics — personal bests, split times, paces, distances, stroke counts, SWOLF values, or any number derivable from swim session data. Those are always recomputed from stored data and must never be cached in memory. Memory is ONLY for: goals, preferences, constraints, injuries, technique cues, and coaching context.
+
 CONVERSATION:
 ${recentMessages}`;
   try {
@@ -2777,6 +2784,33 @@ ${recentMessages}`;
     console.error('[SwimCoach] memory update failed:', e);
   }
 }
+
+// Dev helpers for swim memory inspection and cleanup
+window.__fc = window.__fc || {};
+window.__fc.showSwimMemory = () => {
+  console.log('[SwimMemory] Current entries:', state.swimCoachMemory.length);
+  state.swimCoachMemory.forEach((m, i) => console.log(`  [${i}] ${m}`));
+  return state.swimCoachMemory;
+};
+window.__fc.purgeSwimMetrics = async (confirm) => {
+  const metricPattern = /\d+m\b|\d+:\d{2}|\d+\.\d+\/100m|\/100m|pace|split|PB|personal best|\bm\/s\b/i;
+  const toRemove = state.swimCoachMemory.filter(m => metricPattern.test(m));
+  const toKeep = state.swimCoachMemory.filter(m => !metricPattern.test(m));
+  console.log('[SwimMemory] Would REMOVE:', toRemove.length);
+  toRemove.forEach((m, i) => console.log(`  ✗ [${i}] ${m}`));
+  console.log('[SwimMemory] Would KEEP:', toKeep.length);
+  toKeep.forEach((m, i) => console.log(`  ✓ [${i}] ${m}`));
+  if (confirm !== true) {
+    console.log('[SwimMemory] Dry run. Call __fc.purgeSwimMetrics(true) to apply.');
+    return;
+  }
+  state.swimCoachMemory = toKeep;
+  if (state.uid) {
+    await fbSet(`users/${state.uid}/profile/main`, { ...state.profile, swimCoachMemory: state.swimCoachMemory, apiKey: state.apiKey });
+  }
+  console.log('[SwimMemory] Purged. Remaining:', state.swimCoachMemory.length);
+  showToast(`🏊 Swim memory: removed ${toRemove.length} metric entries`);
+};
 
 // ── SWIM MEMORY SEEDING ─────────────────────────────────────
 
