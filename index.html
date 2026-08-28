@@ -2156,6 +2156,12 @@ function fmtDurPrecise(sec) {
   return `${m}:${s.padStart(5, '0')}`;
 }
 
+function fmtDist(m){
+  if (m == null || isNaN(m)) return '0';
+  const r = Math.round(m * 10) / 10;
+  return (r % 1 === 0) ? String(r) : r.toFixed(1);
+}
+
 // Compute the fastest window of numLengths consecutive lengths by move time.
 // Pool-agnostic: uses actual len.dist for distance, works for any pool size.
 // lengths: array of swim-length objects in swim order, each with moveSec and dist.
@@ -2355,7 +2361,7 @@ window.importSwimCsv = async (input) => {
   await fbSet(`users/${state.uid}/swims/${swim.docDate}`, doc);
   state.swims[swim.docDate] = doc;
 
-  showToast(`Swim imported: ${swim.summary.totalDist}m on ${swim.docDate}`);
+  showToast(`Swim imported: ${fmtDist(swim.summary.totalDist)}m on ${swim.docDate}`);
   renderSwimPanel(swim.docDate);
   renderTodayWorkout();
 
@@ -2412,7 +2418,7 @@ function renderSwimSummary(date) {
   const s = swim.summary;
   document.getElementById('swimSummaryDate').textContent = date;
   document.getElementById('swimSummaryPool').textContent = `${swim.meta.poolSize}m pool · ${swim.meta.startTime}–${swim.meta.endTime}`;
-  document.getElementById('swimStatDist').textContent = `${s.totalDist}m`;
+  document.getElementById('swimStatDist').textContent = `${fmtDist(s.totalDist)}m`;
   document.getElementById('swimStatPace').textContent = fmtDur(s.avgPace100);
   document.getElementById('swimStatTime').textContent = fmtDur(s.moveTime);
   document.getElementById('swimStatSWOLF').textContent = s.avgSWOLF > 0 ? s.avgSWOLF.toFixed(1) : '—';
@@ -2429,7 +2435,7 @@ function renderSwimSummary(date) {
       return `
     <div style="display:flex;justify-content:space-between;align-items:center;padding:5px 8px;background:#111;border-radius:6px;font-size:12px">
       <span style="color:var(--muted)">Lap ${i + 1}</span>
-      <span style="color:#5ab4ff;font-weight:700">${cumDist}m</span>
+      <span style="color:#5ab4ff;font-weight:700">${fmtDist(cumDist)}m</span>
       <span style="color:var(--muted)">${fmtDurPrecise(len.moveSec)}</span>
       <span style="color:var(--muted)">${fmtDur(len.pace100Sec)}/100m</span>
       <span style="color:#3dffc0">SWOLF ${len.swolf > 0 ? len.swolf : '—'}</span>
@@ -2440,7 +2446,7 @@ function renderSwimSummary(date) {
     breakdown.innerHTML = (swim.sets || []).map(st => `
     <div style="display:flex;justify-content:space-between;align-items:center;padding:5px 8px;background:#111;border-radius:6px;font-size:12px">
       <span style="color:var(--muted)">Set ${st.setNum}</span>
-      <span style="color:#5ab4ff;font-weight:700">${st.dist}m</span>
+      <span style="color:#5ab4ff;font-weight:700">${fmtDist(st.dist)}m</span>
       <span style="color:var(--muted)">${fmtDur(st.avgPace100)}/100m</span>
       <span style="color:#3dffc0">SWOLF ${st.avgSWOLF > 0 ? st.avgSWOLF.toFixed(0) : '—'}</span>
       ${st.restAfter > 0 ? `<span style="color:var(--muted)">rest ${Math.round(st.restAfter)}s</span>` : ''}
@@ -2481,7 +2487,7 @@ function renderSwimHistoryChart() {
   // y-axis labels
   const yLabels = [minV, maxV].map((v, i) => {
     const y = yS(v);
-    const label = swimTabMetric === 'pace' ? fmtDur(v) : `${v}m`;
+    const label = swimTabMetric === 'pace' ? fmtDur(v) : `${fmtDist(v)}m`;
     return `<text x="${PAD.l - 4}" y="${y + 4}" fill="#555" font-size="9" text-anchor="end" font-family="Barlow Condensed,sans-serif">${label}</text>`;
   }).join('');
 
@@ -2512,7 +2518,7 @@ function renderSwimSessionList() {
         <div style="font-size:11px;color:var(--muted)">${fmtDur(s.moveTime)} · ${s.lengths} lengths</div>
       </div>
       <div style="text-align:right">
-        <div style="font-size:15px;font-weight:700;color:#5ab4ff">${s.totalDist}m</div>
+        <div style="font-size:15px;font-weight:700;color:#5ab4ff">${fmtDist(s.totalDist)}m</div>
         <div style="font-size:11px;color:var(--muted)">${fmtDur(s.avgPace100)}/100m</div>
       </div>
     </div>`;
@@ -2538,7 +2544,7 @@ function buildSwimDataContext() {
 
   // Latest swim full detail
   let ctx = `LATEST SWIM (${latestDate}):\n`;
-  ctx += `Distance: ${ls.totalDist}m | Lengths: ${ls.lengths} | Sets: ${ls.sets}\n`;
+  ctx += `Distance: ${fmtDist(ls.totalDist)}m | Lengths: ${ls.lengths} | Sets: ${ls.sets}\n`;
   ctx += `Move time: ${fmtDur(ls.moveTime)} | Rest time: ${fmtDur(ls.restTime)} | Total: ${fmtDur(ls.totalTime)}\n`;
   ctx += `Avg pace/100m: ${fmtDur(ls.avgPace100)} | Best pace/100m: ${fmtDur(ls.bestPace100)}\n`;
   ctx += `Avg SWOLF: ${ls.avgSWOLF > 0 ? ls.avgSWOLF.toFixed(1) : 'N/A'} | Avg DPS: ${ls.avgDPS > 0 ? ls.avgDPS.toFixed(2) + 'm' : 'N/A'}\n`;
@@ -2551,7 +2557,7 @@ function buildSwimDataContext() {
   if (sets.length > 0) {
     ctx += `\nSET BREAKDOWN:\n`;
     sets.forEach(st => {
-      ctx += `  Set ${st.setNum} (${st.structure}): ${st.dist}m, pace ${fmtDur(st.avgPace100)}/100m, SWOLF ${st.avgSWOLF > 0 ? st.avgSWOLF.toFixed(0) : '—'}, HR ${st.avgHR > 0 ? Math.round(st.avgHR) : '—'}, rest ${Math.round(st.restAfter)}s\n`;
+      ctx += `  Set ${st.setNum} (${st.structure}): ${fmtDist(st.dist)}m, pace ${fmtDur(st.avgPace100)}/100m, SWOLF ${st.avgSWOLF > 0 ? st.avgSWOLF.toFixed(0) : '—'}, HR ${st.avgHR > 0 ? Math.round(st.avgHR) : '—'}, rest ${Math.round(st.restAfter)}s\n`;
     });
   }
 
@@ -2564,8 +2570,8 @@ function buildSwimDataContext() {
     for (const [key, targetM] of [['s100',100],['s200',200],['s250',250],['s400',400],['s500',500],['s1000',1000],['s1500',1500],['s2000',2000]]) {
       const sp = liveSplits[key];
       if (!sp) continue;
-      const distLabel = sp.distM === sp.targetM ? `${sp.targetM}m` : `${sp.targetM}m target: best ${sp.distM}m`;
-      parts.push(`  ${distLabel} in ${fmtDurPrecise(sp.timeSec)} @ ${fmtDurPrecise(sp.pace100Sec)}/100m (${sp.poolSize}m pool, over ${sp.startDist}m–${sp.endDist}m)`);
+      const distLabel = sp.distM === sp.targetM ? `${sp.targetM}m` : `${sp.targetM}m target: best ${fmtDist(sp.distM)}m`;
+      parts.push(`  ${distLabel} in ${fmtDurPrecise(sp.timeSec)} @ ${fmtDurPrecise(sp.pace100Sec)}/100m (${fmtDist(sp.poolSize)}m pool, over ${fmtDist(sp.startDist)}m–${fmtDist(sp.endDist)}m)`);
     }
     if (parts.length > 0) {
       ctx += `\nBEST ROLLING SPLITS (computed):\n`;
@@ -2579,7 +2585,7 @@ function buildSwimDataContext() {
     let cumDist = 0;
     ll.forEach((l, i) => {
       cumDist += l.dist;
-      ctx += `  #${i + 1}: ${cumDist}m, ${fmtDurPrecise(l.moveSec)} move, pace ${fmtDurPrecise(l.pace100Sec)}/100m, SWOLF ${l.swolf > 0 ? l.swolf.toFixed(0) : '—'}, HR ${l.hr > 0 ? Math.round(l.hr) : '—'}\n`;
+      ctx += `  #${i + 1}: ${fmtDist(cumDist)}m, ${fmtDurPrecise(l.moveSec)} move, pace ${fmtDurPrecise(l.pace100Sec)}/100m, SWOLF ${l.swolf > 0 ? l.swolf.toFixed(0) : '—'}, HR ${l.hr > 0 ? Math.round(l.hr) : '—'}\n`;
     });
   }
 
@@ -2591,7 +2597,7 @@ function buildSwimDataContext() {
       const sw = state.swims[d];
       const s = sw.summary;
       const swPool = sw.meta && sw.meta.poolSize ? `${sw.meta.poolSize}m pool` : '';
-      ctx += `  ${d}: ${s.totalDist}m, ${fmtDur(s.moveTime)} move, pace ${fmtDur(s.avgPace100)}/100m, SWOLF ${s.avgSWOLF > 0 ? s.avgSWOLF.toFixed(1) : '—'}, DPS ${s.avgDPS > 0 ? s.avgDPS.toFixed(2) : '—'}, HR ${s.avgHR > 0 ? Math.round(s.avgHR) : '—'}, drift ${s.hrDrift !== null ? s.hrDrift : '—'}${swPool ? ', ' + swPool : ''}\n`;
+      ctx += `  ${d}: ${fmtDist(s.totalDist)}m, ${fmtDur(s.moveTime)} move, pace ${fmtDur(s.avgPace100)}/100m, SWOLF ${s.avgSWOLF > 0 ? s.avgSWOLF.toFixed(1) : '—'}, DPS ${s.avgDPS > 0 ? s.avgDPS.toFixed(2) : '—'}, HR ${s.avgHR > 0 ? Math.round(s.avgHR) : '—'}, drift ${s.hrDrift !== null ? s.hrDrift : '—'}${swPool ? ', ' + swPool : ''}\n`;
       if (sw.splits) {
         const parts = [];
         for (const [key, targetM] of [['s100',100],['s200',200],['s250',250],['s400',400],['s500',500],['s1000',1000],['s1500',1500],['s2000',2000]]) {
@@ -2599,11 +2605,11 @@ function buildSwimDataContext() {
           if (!sp) continue;
           // New shape has distM/targetM/poolSize; old shape (pre-generalization) does not
           if (sp.distM != null) {
-            const distLabel = sp.distM === sp.targetM ? `${sp.targetM}m` : `${sp.targetM}m(=${sp.distM}m)`;
-            parts.push(`${distLabel} ${fmtDurPrecise(sp.timeSec)} @ ${fmtDurPrecise(sp.pace100Sec)}/100m (${sp.startDist}–${sp.endDist}m)`);
+            const distLabel = sp.distM === sp.targetM ? `${sp.targetM}m` : `${sp.targetM}m(=${fmtDist(sp.distM)}m)`;
+            parts.push(`${distLabel} ${fmtDurPrecise(sp.timeSec)} @ ${fmtDurPrecise(sp.pace100Sec)}/100m (${fmtDist(sp.startDist)}–${fmtDist(sp.endDist)}m)`);
           } else {
             // Old stored splits: assume label matches (all old swims were 25m)
-            parts.push(`${targetM}m ${fmtDurPrecise(sp.timeSec)} @ ${fmtDurPrecise(sp.pace100Sec)}/100m (${sp.startDist}–${sp.endDist}m)`);
+            parts.push(`${targetM}m ${fmtDurPrecise(sp.timeSec)} @ ${fmtDurPrecise(sp.pace100Sec)}/100m (${fmtDist(sp.startDist)}–${fmtDist(sp.endDist)}m)`);
           }
         }
         if (parts.length > 0) ctx += `    Splits: ${parts.join('; ')}\n`;
@@ -2619,7 +2625,7 @@ function buildSwimDataContext() {
     ctx += `\nTREND vs PREVIOUS (${prevDate}):\n`;
     ctx += `  Pace: ${paceDelta > 0 ? '+' : ''}${paceDelta.toFixed(1)}s/100m (${paceDelta < 0 ? 'faster' : paceDelta > 0 ? 'slower' : 'same'})\n`;
     ctx += `  SWOLF: ${swolfDelta > 0 ? '+' : ''}${swolfDelta.toFixed(1)} (${swolfDelta < 0 ? 'improved' : swolfDelta > 0 ? 'worse' : 'same'})\n`;
-    ctx += `  Distance: ${distDelta > 0 ? '+' : ''}${distDelta}m\n`;
+    ctx += `  Distance: ${distDelta > 0 ? '+' : ''}${fmtDist(distDelta)}m\n`;
   }
 
   // Pool-length coaching note (only when multiple pool sizes exist in history)
