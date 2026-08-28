@@ -2229,7 +2229,7 @@ function parseFormCsv(text) {
   const docDate = `${dp[2]}-${dp[0].padStart(2,'0')}-${dp[1].padStart(2,'0')}`;
   const startTime = meta1[2];
   const endTime   = meta1[3];
-  const poolSize  = parseInt(meta1[5]) || 25;
+  const poolSize  = parseFloat(meta1[5]) || 25;
   const hrDevice  = meta1[6] || '';
 
   let detailHeaderIdx = -1;
