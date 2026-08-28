@@ -2811,6 +2811,21 @@ window.__fc.purgeSwimMetrics = async (confirm) => {
   console.log('[SwimMemory] Purged. Remaining:', state.swimCoachMemory.length);
   showToast(`🏊 Swim memory: removed ${toRemove.length} metric entries`);
 };
+window.__fc.setSwimMemory = async (arr) => {
+  if (!Array.isArray(arr) || !arr.every(s => typeof s === 'string')) {
+    throw new Error('setSwimMemory: argument must be an array of strings');
+  }
+  state.swimCoachMemory = arr;
+  state.profile.swimCoachMemory = arr;
+  const payload = { ...state.profile, swimCoachMemory: arr, apiKey: state.apiKey };
+  try {
+    await fbSet(`users/${state.uid}/profile/main`, payload);
+  } catch(e) {
+    console.error('[SwimMemory] setSwimMemory write FAILED:', e);
+    throw e;
+  }
+  console.log('[SwimMemory] setSwimMemory: wrote', arr.length, 'entries');
+};
 
 // ── SWIM MEMORY SEEDING ─────────────────────────────────────
 
