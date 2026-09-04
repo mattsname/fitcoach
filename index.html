@@ -2062,7 +2062,7 @@ function renderTodayWorkout() {
       const sm = todaySwim.summary;
       exList.innerHTML = `<div style="background:#111;border-radius:10px;padding:14px;text-align:center">
         <div style="font-size:12px;color:var(--muted);margin-bottom:6px">TODAY'S SWIM</div>
-        <div style="font-size:24px;font-weight:700;color:#5ab4ff">${sm.totalDist}m</div>
+        <div style="font-size:24px;font-weight:700;color:#5ab4ff">${fmtDist(sm.totalDist)}m</div>
         <div style="font-size:13px;color:var(--muted);margin:4px 0">${fmtDur(sm.moveTime)} · ${fmtDur(sm.avgPace100)}/100m</div>
         <button onclick="switchTab('swim')" style="margin-top:10px;background:#5ab4ff22;color:#5ab4ff;border:1px solid #5ab4ff55;border-radius:8px;padding:6px 20px;font-family:'Barlow Condensed',sans-serif;font-size:13px;cursor:pointer;font-weight:700">View Full Session →</button>
       </div>`;
@@ -5188,7 +5188,7 @@ ${(() => {
   if (swimDates.length === 0) return '';
   const lines = swimDates.map(d => {
     const sm = state.swims[d].summary;
-    return `- ${d}: ${sm.totalDist}m, ${fmtDur(sm.moveTime)} move time, ${fmtDur(sm.avgPace100)}/100m avg pace`;
+    return `- ${d}: ${fmtDist(sm.totalDist)}m, ${fmtDur(sm.moveTime)} move time, ${fmtDur(sm.avgPace100)}/100m avg pace`;
   }).join('\n');
   return `RECENT SWIM SESSIONS (from FORM goggles imports, last ${swimDates.length}):\n${lines}\nNote: the dedicated swim coach handles detailed swim analysis (splits, technique, SWOLF). Use these for overall training load, recovery, and nutrition context.\n`;
 })()}SCHEDULE: Mon = Push, Tue = Swim, Wed = Pull, Thu = Swim, Fri = Legs, Sat/Sun = Rest.
@@ -6065,7 +6065,7 @@ window.selectCalDay = async (ds) => {
     const sm = swimDoc.summary;
     html += `<div style="margin-bottom:10px"><div style="font-size:11px;color:var(--muted);letter-spacing:1px;margin-bottom:6px">🏊 SWIM (FORM import)</div>
       <div style="padding:8px 10px;background:#1a1a1a;border-radius:8px">
-        <div style="font-size:20px;font-weight:800;color:#a855f7">${sm.totalDist}m</div>
+        <div style="font-size:20px;font-weight:800;color:#a855f7">${fmtDist(sm.totalDist)}m</div>
         <div style="font-size:13px;color:var(--muted);margin-top:4px">${fmtDur(sm.moveTime)} move time · ${fmtDur(sm.avgPace100)}/100m avg pace</div>
         ${sm.avgSWOLF ? `<div style="font-size:12px;color:var(--muted);margin-top:2px">SWOLF ${sm.avgSWOLF.toFixed(1)} · ${sm.sets || '?'} sets · ${sm.lengths || '?'} lengths</div>` : ''}
       </div>
