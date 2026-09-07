@@ -1706,6 +1706,34 @@ async function fbSet(path, data) {
   try { await setDoc(doc(db, path), data, { merge: true }); } catch(e) { console.warn('fbSet error', e); }
 }
 
+// ── CROSSWALK ────────────────────────────────────────────────
+// Publishes a small canonical signal for downstream apps (What's Cookin's
+// Chef sizes a dinner against the remaining deficit). Deliberately minimal:
+// today's targets and today's consumed totals, nothing derived.
+// Consumed values are recomputed from state.foodLog here rather than read
+// from anything cached, so the doc can never lag the food log.
+// Callers are the three food-mutation paths: analyseFood, removeFood,
+// saveEditFood (the last only when editing today).
+async function publishCrosswalkSignal() {
+  if (!state.uid) {
+    console.warn('[FitCoach] publishCrosswalkSignal: no uid — signal NOT published');
+    return;
+  }
+  const today = todayStr();
+  const log = state.foodLog[today] || [];
+  let cals = 0, protein = 0;
+  log.forEach(f => { cals += f.calories || 0; protein += f.protein || 0; });
+
+  await fbSet(`users/${state.uid}/crosswalk/mealSignal`, {
+    calorieTarget: parseInt(state.profile.calorieTarget) || 2200,
+    proteinTarget: parseInt(state.profile.proteinTarget) || 180,
+    consumedCalories: Math.round(cals),
+    consumedProtein: Math.round(protein),
+    date: today,
+    lastUpdated: new Date().toISOString()
+  });
+}
+
 // Builds the watch-compatible workouts/{date} document.
 // loggedSetsMap: { exerciseName: [{set,weight,reps}] } — pass {} when generating (sets empty),
 // pass populated map on save so the watch sees actual logged sets.
@@ -1852,7 +1880,7 @@ async function saveProfile() {
     weight,
     goalWeight,
     calorieTarget: parseFloat(calVal) || 2200,
-    proteinTarget: parseFloat(protVal) || 150,
+    proteinTarget: parseFloat(protVal) || 180,
     context: document.getElementById('sContext').value,
   };
   state.profile = profile;
@@ -3701,6 +3729,7 @@ quality is integer 1-5: 1=junk/candy/fast food, 2=low/processed/refined, 3=moder
     renderFoodLog();
     renderNutrition();
     renderWeeklyNutrition();
+    await publishCrosswalkSignal();
     showToast('✅ ' + data.comment.slice(0,50));
   } catch(e) {
     showToast('❌ Could not analyse food');
@@ -3745,6 +3774,7 @@ window.removeFood = async (idx) => {
   renderFoodLog();
   renderNutrition();
   renderWeeklyNutrition();
+  await publishCrosswalkSignal();
 };
 
 // ── WEEKLY NUTRITION ─────────────────────────────────────────
@@ -4781,7 +4811,7 @@ function renderNutrition() {
   const today = todayStr();
   const log = state.foodLog[today] || [];
   const target = parseInt(state.profile.calorieTarget) || 2200;
-  const pTarget = parseInt(state.profile.proteinTarget) || 150;
+  const pTarget = parseInt(state.profile.proteinTarget) || 180;
   let cals = 0, protein = 0, carbs = 0, fat = 0;
   log.forEach(f => { cals += f.calories||0; protein += f.protein||0; carbs += f.carbs||0; fat += f.fat||0; });
   const calPct = Math.min(100, Math.round(cals/target*100));
@@ -5205,7 +5235,7 @@ function buildSystemPrompt() {
 
 IMPORTANT: When the user asks to change exercises, swap movements, adjust their schedule, or modify their workout in any way — acknowledge the change AND know that the app will automatically update the workout list based on your conversation. So make your recommendation clearly.
 
-PROFILE: Age ${p.age || 'unknown'}, Height ${p.height || 'unknown'}in, Goal: ${p.goalWeight || 'unknown'}lbs, Calories: ${p.calorieTarget || 2200}kcal/day, Protein: ${p.proteinTarget || 150}g/day
+PROFILE: Age ${p.age || 'unknown'}, Height ${p.height || 'unknown'}in, Goal: ${p.goalWeight || 'unknown'}lbs, Calories: ${p.calorieTarget || 2200}kcal/day, Protein: ${p.proteinTarget || 180}g/day
 
 BACKGROUND: ${p.context || 'No prior history provided.'}
 
@@ -5213,7 +5243,7 @@ FULL WEIGHT HISTORY (daily, oldest→newest, ${log.length} entries): ${log.map(e
 
 TODAY (${today}, ${sched[dow]?.label} day):
 - Calories: ${totalCals}/${p.calorieTarget || 2200}kcal
-- Protein: ${Math.round(totalProtein)}g/${p.proteinTarget || 150}g
+- Protein: ${Math.round(totalProtein)}g/${p.proteinTarget || 180}g
 - Foods eaten: ${food.map(f=>f.name).join(', ')||'nothing yet'}
 - Current workout exercises: ${currentExercises}
 
@@ -5794,7 +5824,9 @@ window.saveEditFood = async () => {
   await fbSet(`users/${state.uid}/food/${date}`, { items: editFoodItems, date });
   closeModal('editFoodModal');
   showToast(`✅ Food saved for ${date}`);
-  if (date === todayStr()) { renderFoodLog(); renderNutrition(); }
+  // Same today-only guard as the renders above: editing a past date must not
+  // overwrite today's published signal.
+  if (date === todayStr()) { renderFoodLog(); renderNutrition(); await publishCrosswalkSignal(); }
   renderWeeklyNutrition();
   analysisDataCache = null;
 };
@@ -5826,7 +5858,7 @@ window.saveSettings = async () => {
     height,
     goalWeight,
     calorieTarget: calVal ? parseFloat(calVal) : (state.profile.calorieTarget || 2200),
-    proteinTarget: protVal ? parseFloat(protVal) : (state.profile.proteinTarget || 150),
+    proteinTarget: protVal ? parseFloat(protVal) : (state.profile.proteinTarget || 180),
     context: document.getElementById('settingsContext').value,
     apiKey: state.apiKey,
   };
