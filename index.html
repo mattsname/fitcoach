@@ -528,6 +528,10 @@ textarea { resize: none; }
 .week-cal-bar-fill { height: 100%; border-radius: 3px; background: var(--orange); transition: width 0.4s; }
 .week-cal-bar-fill.over { background: var(--red); }
 .week-cal-nums { font-size: 11px; color: var(--muted); white-space: nowrap; }
+/* Separate classes from .week-cal-bar* — those are shared with the Analysis
+   tab's weekly view, so protein gets its own to avoid affecting it. */
+.week-protein-bar { height: 5px; background: var(--surface3); border-radius: 3px; overflow: hidden; margin-bottom: 3px; }
+.week-protein-bar-fill { height: 100%; border-radius: 3px; background: #3dffc0; transition: width 0.4s; }
 .week-delta {
   font-size: 11px; font-weight: 700; padding: 2px 7px;
   border-radius: 10px; flex-shrink: 0; min-width: 52px; text-align: right;
@@ -535,6 +539,14 @@ textarea { resize: none; }
 .week-delta.deficit { color: var(--green); }
 .week-delta.surplus { color: var(--red); }
 .week-delta.nodata { color: var(--muted2); }
+/* Stacked deltas: kcal on top (orange under / red over, matching the kcal
+   bar), protein below (always green, matching the protein bar — exceeding
+   the protein target is not a penalty state). */
+.week-delta-cal.under { color: var(--orange); }
+.week-delta-cal.over { color: var(--red); }
+.week-delta-cal.nodata { color: var(--muted2); }
+.week-delta-prot { color: #3dffc0; margin-top: 3px; }
+.week-delta-prot.nodata { color: var(--muted2); margin-top: 3px; }
 .week-summary {
   display: flex; gap: 8px; margin-top: 12px; padding-top: 10px;
   border-top: 1px solid var(--border);
@@ -3759,11 +3771,14 @@ function renderWeeklyNutrition() {
   const container = document.getElementById('weeklyNutritionList');
   if (!container) return;
   const calTarget = parseInt(state.profile.calorieTarget) || 2200;
+  // Matches the sibling weekly view (renderAnalysisNutrition) rather than the
+  // || 150 default used elsewhere, so a configured target is honoured.
+  const protTarget = parseInt(state.profile?.proteinTarget) || 180;
   const today = new Date();
   const todayDateStr = todayStr();
   const DAY_SHORT = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 
-  let totalCals = 0, loggedDays = 0, totalDeficit = 0;
+  let totalCals = 0, loggedDays = 0, totalDeficit = 0, totalProt = 0;
   const days = [];
   for (let i = 6; i >= 0; i--) {
     const d = new Date(today);
@@ -3771,13 +3786,17 @@ function renderWeeklyNutrition() {
     const dateStr = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
     const items = state.foodLog[dateStr] || [];
     const cals = Math.round(items.reduce((s, f) => s + (f.calories || 0), 0));
+    const prot = Math.round(items.reduce((s, f) => s + (f.protein || 0), 0));
     const isToday = dateStr === todayDateStr;
-    days.push({ dateStr, dayName: DAY_SHORT[d.getDay()], cals, isToday });
-    if (cals > 0) { totalCals += cals; loggedDays++; }
+    days.push({ dateStr, dayName: DAY_SHORT[d.getDay()], cals, prot, isToday });
+    // Protein accumulates on the same condition as calories so avgProt and
+    // avgCals share the loggedDays denominator and stay comparable.
+    if (cals > 0) { totalCals += cals; totalProt += prot; loggedDays++; }
     totalDeficit += calTarget - cals;
   }
 
   const avgCals = loggedDays > 0 ? Math.round(totalCals / loggedDays) : 0;
+  const avgProt = loggedDays > 0 ? Math.round(totalProt / loggedDays) : 0;
 
   // Weight change over the week
   const weekStart = days[0].dateStr;
@@ -3787,20 +3806,34 @@ function renderWeeklyNutrition() {
     weightChange = (weekWeights[weekWeights.length - 1].weight - weekWeights[0].weight).toFixed(1);
   }
 
-  const rowsHtml = days.map(({ dayName, cals, isToday }) => {
+  const rowsHtml = days.map(({ dayName, cals, prot, isToday }) => {
     const hasData = cals > 0;
     const pct = hasData ? Math.min(100, Math.round(cals / calTarget * 100)) : 0;
+    // No "over" state for protein — exceeding the target isn't a penalty the
+    // way a calorie surplus is, so the fill just clamps at 100%.
+    const protPct = hasData ? Math.min(100, Math.round(prot / protTarget * 100)) : 0;
     const over = cals > calTarget;
     const delta = calTarget - cals;
     const deltaLabel = !hasData ? '—' : (over ? '+' + Math.abs(delta) : '−' + Math.abs(delta));
-    const deltaClass = !hasData ? 'nodata' : (over ? 'surplus' : 'deficit');
+    // Reuses the same `over` test the kcal bar fill uses, so bar and delta
+    // can never disagree about which side of the target the day is on.
+    const deltaClass = !hasData ? 'nodata' : (over ? 'over' : 'under');
+    const protDelta = prot - protTarget;
+    const protDeltaLabel = !hasData ? '—'
+      : (protDelta >= 0 ? '+' + protDelta + 'g' : '−' + Math.abs(protDelta) + 'g');
+    const protDeltaClass = !hasData ? 'nodata' : '';
     return `<div class="week-day-row">
       <div class="week-day-name${isToday ? ' today' : ''}">${dayName}</div>
       <div class="week-cal-bar-wrap">
         <div class="week-cal-bar"><div class="week-cal-bar-fill${over ? ' over' : ''}" style="width:${pct}%"></div></div>
         <div class="week-cal-nums">${hasData ? cals + ' / ' + calTarget + ' kcal' : 'no data'}</div>
+        <div class="week-protein-bar"><div class="week-protein-bar-fill" style="width:${protPct}%"></div></div>
+        <div class="week-cal-nums">${hasData ? prot + ' / ' + protTarget + 'g' : '—'}</div>
       </div>
-      <div class="week-delta ${deltaClass}">${deltaLabel}</div>
+      <div class="week-delta">
+        <div class="week-delta-cal ${deltaClass}">${deltaLabel}</div>
+        <div class="week-delta-prot ${protDeltaClass}">${protDeltaLabel}</div>
+      </div>
     </div>`;
   }).join('');
 
@@ -3813,6 +3846,10 @@ function renderWeeklyNutrition() {
     <div class="week-summary-box">
       <div class="week-summary-val">${avgCals || '—'}</div>
       <div class="week-summary-lbl">Avg kcal</div>
+    </div>
+    <div class="week-summary-box">
+      <div class="week-summary-val" style="color:#3dffc0">${avgProt || '—'}</div>
+      <div class="week-summary-lbl">Avg protein</div>
     </div>
     <div class="week-summary-box">
       <div class="week-summary-val" style="color:${deficitColor}">${deficitLabel}</div>
