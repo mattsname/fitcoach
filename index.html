@@ -6015,6 +6015,25 @@ window.selectCalDay = async (ds) => {
   if (workoutItems.length > 0 && state.uid) {
     const wDoc = await fbGet(`users/${state.uid}/workouts/${ds}`);
     calWorkoutStartTime = wDoc?.startTime || '';
+
+    // Bug 6g: workoutItems is built from state.exerciseHistory, whose keys are
+    // exercise names loaded doc-ID-ordered (i.e. alphabetical) — so the day
+    // detail listed exercises alphabetically rather than as performed. The
+    // workout doc's exercises array IS the performed order, so re-order to
+    // match it. Unmatched names sort to the end, keeping their relative order
+    // (Array.prototype.sort is stable). No workout doc, no exercises array, or
+    // an empty one => leave workoutItems untouched.
+    if (wDoc && Array.isArray(wDoc.exercises) && wDoc.exercises.length > 0) {
+      const order = new Map();
+      wDoc.exercises.forEach((e, i) => {
+        const n = e && e.name;
+        if (n && !order.has(n)) order.set(n, i);
+      });
+      // MAX_SAFE_INTEGER rather than Infinity: Infinity - Infinity is NaN,
+      // which makes the comparator ill-defined when two names are unmatched.
+      const rank = n => order.has(n) ? order.get(n) : Number.MAX_SAFE_INTEGER;
+      workoutItems.sort((a, b) => rank(a.name) - rank(b.name));
+    }
   }
 
   const dateLabel = new Date(ds + 'T12:00:00').toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric', year:'numeric' });
