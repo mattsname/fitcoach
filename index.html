@@ -954,7 +954,7 @@ input[type="file"] { display: none; }
         <button class="btn btn-ghost btn-sm" style="flex:1" onclick="analyseEditFood()">✨ Gemini</button>
       </div>
     </div>
-    <button class="btn btn-primary btn-full" style="margin-top:14px" onclick="saveEditFood()">💾 Save Food Log</button>
+    <button class="btn btn-primary btn-full" id="saveEditFoodBtn" style="margin-top:14px" onclick="saveEditFood()">💾 Save Food Log</button>
   </div>
 </div>
 
@@ -1714,7 +1714,25 @@ async function fbSet(path, data) {
 // from anything cached, so the doc can never lag the food log.
 // Callers are the three food-mutation paths: analyseFood, removeFood,
 // saveEditFood (the last only when editing today).
+// Serialisation queue. Callers (analyseFood, removeFood, saveEditFood) can
+// overlap — removeFood in particular fires from a per-row button with no lock,
+// and latency varies wildly (photo upload + up to 2 Gemini retries on mobile).
+// Without this, two in-flight publishes race and the LAST TO RESOLVE wins,
+// so a slower earlier call can clobber a fresher later one with a stale total.
+// Chaining forces execution in INITIATION order, which is the order the totals
+// were computed in — so the newest call is always the last to write.
+let crosswalkQueue = Promise.resolve();
+
 async function publishCrosswalkSignal() {
+  // .catch keeps the chain alive: an unhandled rejection in one link would
+  // otherwise poison crosswalkQueue and silently break every later publish.
+  crosswalkQueue = crosswalkQueue
+    .then(() => publishCrosswalkSignalNow())
+    .catch(e => { console.error('[CROSSWALK PUBLISH FAILED]', e); });
+  return crosswalkQueue;
+}
+
+async function publishCrosswalkSignalNow() {
   if (!state.uid) {
     console.warn('[FitCoach] publishCrosswalkSignal: no uid — signal NOT published');
     return;
@@ -3778,32 +3796,41 @@ function renderFoodLog() {
         <div class="food-macros">P: ${Math.round(f.protein||0)}g · C: ${Math.round(f.carbs||0)}g · F: ${Math.round(f.fat||0)}g</div>
       </div>
       <div class="food-cals">${f.calories}</div>
-      <button class="food-remove" onclick="removeFood(${i})">✕</button>
+      <button class="food-remove" onclick="removeFood(${i}, this)">✕</button>
     </div>`).join('');
 }
 
-window.removeFood = async (idx) => {
-  const today = todayStr();
-  state.foodLog[today].splice(idx, 1);
-  console.log('[FitCoach] removeFood: uid=', state.uid, 'remaining items=', state.foodLog[today].length);
-  if (state.uid) {
-    const path = `users/${state.uid}/food/${today}`;
-    console.log('[FitCoach] removeFood: saving to Firestore path:', path);
-    await fbSet(path, { items: state.foodLog[today], date: today });
-  } else {
-    console.warn('[FitCoach] removeFood: no uid — food NOT saved to Firestore');
-  }
-  saveLocal();
-  renderFoodLog();
-  renderNutrition();
-  renderWeeklyNutrition();
-  // Isolated: removeFood has no surrounding try/catch, so a bare call here
-  // would become an unhandled rejection. The food removal already succeeded.
+window.removeFood = async (idx, btn) => {
+  // Same lock pattern as analyseFood: disable synchronously before any await,
+  // re-enable after the try/catch so it runs on success and failure alike.
+  // Note renderFoodLog() below rebuilds the row (and this button) anyway; the
+  // disable matters for the window before that happens.
+  if (btn) btn.disabled = true;
   try {
-    await publishCrosswalkSignal();
-  } catch (cwErr) {
-    console.error('[CROSSWALK PUBLISH FAILED]', cwErr);
+    const today = todayStr();
+    state.foodLog[today].splice(idx, 1);
+    console.log('[FitCoach] removeFood: uid=', state.uid, 'remaining items=', state.foodLog[today].length);
+    if (state.uid) {
+      const path = `users/${state.uid}/food/${today}`;
+      console.log('[FitCoach] removeFood: saving to Firestore path:', path);
+      await fbSet(path, { items: state.foodLog[today], date: today });
+    } else {
+      console.warn('[FitCoach] removeFood: no uid — food NOT saved to Firestore');
+    }
+    saveLocal();
+    renderFoodLog();
+    renderNutrition();
+    renderWeeklyNutrition();
+    // Isolated: a crosswalk failure must not affect the removal's outcome.
+    try {
+      await publishCrosswalkSignal();
+    } catch (cwErr) {
+      console.error('[CROSSWALK PUBLISH FAILED]', cwErr);
+    }
+  } catch (e) {
+    console.error('[FitCoach] removeFood failed:', e);
   }
+  if (btn) btn.disabled = false;
 };
 
 // ── WEEKLY NUTRITION ─────────────────────────────────────────
@@ -5848,26 +5875,36 @@ window.analyseEditFood = async () => {
 
 window.saveEditFood = async () => {
   if (!state.editDate || !state.uid) return;
-  const date = state.editDate;
-  state.foodLog[date] = editFoodItems;
-  await fbSet(`users/${state.uid}/food/${date}`, { items: editFoodItems, date });
-  closeModal('editFoodModal');
-  showToast(`✅ Food saved for ${date}`);
-  // Same today-only guard as the renders above: editing a past date must not
-  // overwrite today's published signal.
-  if (date === todayStr()) {
-    renderFoodLog();
-    renderNutrition();
-    // Isolated: the food save already succeeded and was toasted above; a
-    // crosswalk failure must not change that outcome.
-    try {
-      await publishCrosswalkSignal();
-    } catch (cwErr) {
-      console.error('[CROSSWALK PUBLISH FAILED]', cwErr);
+  // Same lock pattern as analyseFood: disable synchronously before any await,
+  // re-enable after the try/catch so it runs on success and failure alike.
+  const btn = document.getElementById('saveEditFoodBtn');
+  if (btn) btn.disabled = true;
+  try {
+    const date = state.editDate;
+    state.foodLog[date] = editFoodItems;
+    await fbSet(`users/${state.uid}/food/${date}`, { items: editFoodItems, date });
+    closeModal('editFoodModal');
+    showToast(`✅ Food saved for ${date}`);
+    // Same today-only guard as the renders above: editing a past date must not
+    // overwrite today's published signal.
+    if (date === todayStr()) {
+      renderFoodLog();
+      renderNutrition();
+      // Isolated: the food save already succeeded and was toasted above; a
+      // crosswalk failure must not change that outcome.
+      try {
+        await publishCrosswalkSignal();
+      } catch (cwErr) {
+        console.error('[CROSSWALK PUBLISH FAILED]', cwErr);
+      }
     }
+    renderWeeklyNutrition();
+    analysisDataCache = null;
+  } catch (e) {
+    console.error('[FitCoach] saveEditFood failed:', e);
+    showToast('❌ Could not save food log');
   }
-  renderWeeklyNutrition();
-  analysisDataCache = null;
+  if (btn) btn.disabled = false;
 };
 
 // ── SETTINGS ─────────────────────────────────────────────────
