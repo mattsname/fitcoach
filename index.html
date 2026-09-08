@@ -1724,14 +1724,28 @@ async function publishCrosswalkSignal() {
   let cals = 0, protein = 0;
   log.forEach(f => { cals += f.calories || 0; protein += f.protein || 0; });
 
-  await fbSet(`users/${state.uid}/crosswalk/mealSignal`, {
-    calorieTarget: parseInt(state.profile.calorieTarget) || 2200,
-    proteinTarget: parseInt(state.profile.proteinTarget) || 180,
-    consumedCalories: Math.round(cals),
-    consumedProtein: Math.round(protein),
-    date: today,
-    lastUpdated: new Date().toISOString()
-  });
+  // Deliberately NOT using fbSet here. fbSet swallows Firestore errors
+  // (catch -> console.warn) and resolves normally, so a rules rejection,
+  // permission denial, or network failure on this path would be invisible to
+  // the caller. This path has a custom security rule, which makes exactly
+  // those failures plausible. setDoc is called directly so they surface.
+  // fbSet itself is unchanged for every other caller in this file.
+  const path = `users/${state.uid}/crosswalk/mealSignal`;
+  try {
+    await setDoc(doc(db, path), {
+      // Optional chaining matches the pattern used everywhere else in this
+      // file. Without it, an undefined state.profile throws before the write
+      // is reached — a silent skip with no obvious cause.
+      calorieTarget: parseInt(state.profile?.calorieTarget) || 2200,
+      proteinTarget: parseInt(state.profile?.proteinTarget) || 180,
+      consumedCalories: Math.round(cals),
+      consumedProtein: Math.round(protein),
+      date: today,
+      lastUpdated: new Date().toISOString()
+    }, { merge: true });
+  } catch (e) {
+    console.error('[CROSSWALK PUBLISH FAILED]', e);
+  }
 }
 
 // Builds the watch-compatible workouts/{date} document.
@@ -3719,6 +3733,16 @@ quality is integer 1-5: 1=junk/candy/fast food, 2=low/processed/refined, 3=moder
       console.log('[FitCoach] analyseFood: saving to Firestore path:', path);
       await fbSet(path, { items: state.foodLog[today], date: today });
       console.log('[FitCoach] analyseFood: Firestore save complete');
+      // Publish IMMEDIATELY after the food write — before saveLocal(), DOM
+      // clearing, and the renders — so a failure in any of those cannot
+      // prevent the crosswalk from being updated.
+      // Isolated try/catch: the food has already saved successfully, so a
+      // crosswalk failure must NOT surface as "could not analyse food".
+      try {
+        await publishCrosswalkSignal();
+      } catch (cwErr) {
+        console.error('[CROSSWALK PUBLISH FAILED]', cwErr);
+      }
     } else {
       console.warn('[FitCoach] analyseFood: no uid — food NOT saved to Firestore');
     }
@@ -3729,7 +3753,6 @@ quality is integer 1-5: 1=junk/candy/fast food, 2=low/processed/refined, 3=moder
     renderFoodLog();
     renderNutrition();
     renderWeeklyNutrition();
-    await publishCrosswalkSignal();
     showToast('✅ ' + data.comment.slice(0,50));
   } catch(e) {
     showToast('❌ Could not analyse food');
@@ -3774,7 +3797,13 @@ window.removeFood = async (idx) => {
   renderFoodLog();
   renderNutrition();
   renderWeeklyNutrition();
-  await publishCrosswalkSignal();
+  // Isolated: removeFood has no surrounding try/catch, so a bare call here
+  // would become an unhandled rejection. The food removal already succeeded.
+  try {
+    await publishCrosswalkSignal();
+  } catch (cwErr) {
+    console.error('[CROSSWALK PUBLISH FAILED]', cwErr);
+  }
 };
 
 // ── WEEKLY NUTRITION ─────────────────────────────────────────
@@ -5826,7 +5855,17 @@ window.saveEditFood = async () => {
   showToast(`✅ Food saved for ${date}`);
   // Same today-only guard as the renders above: editing a past date must not
   // overwrite today's published signal.
-  if (date === todayStr()) { renderFoodLog(); renderNutrition(); await publishCrosswalkSignal(); }
+  if (date === todayStr()) {
+    renderFoodLog();
+    renderNutrition();
+    // Isolated: the food save already succeeded and was toasted above; a
+    // crosswalk failure must not change that outcome.
+    try {
+      await publishCrosswalkSignal();
+    } catch (cwErr) {
+      console.error('[CROSSWALK PUBLISH FAILED]', cwErr);
+    }
+  }
   renderWeeklyNutrition();
   analysisDataCache = null;
 };
